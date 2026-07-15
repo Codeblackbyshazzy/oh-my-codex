@@ -74,9 +74,9 @@ import {
   WRITABLE_STATE_SCOPE_ERRORS,
 } from "../mcp/state-paths.js";
 import {
-  detectKeywords,
-  detectPrimaryKeyword,
+  classifyKeywordInput,
   recordSkillActivation,
+  type KeywordInputClassification,
   type SkillActiveState,
 } from "../hooks/keyword-detector.js";
 import { buildDeepInterviewConfigInstruction } from "../hooks/deep-interview-config-instruction.js";
@@ -854,8 +854,8 @@ function readPromptText(payload: CodexHookPayload): string {
     payload.userPrompt,
   ];
   for (const candidate of candidates) {
-    const value = safeString(candidate).trim();
-    if (value) return value;
+    const value = safeString(candidate);
+    if (value.trim()) return value;
   }
   return "";
 }
@@ -2339,25 +2339,29 @@ function buildTeamHelpInstruction(cwd: string, payload?: CodexHookPayload): stri
   }).teamHelpInstruction;
 }
 
-function buildNativeOutsideTmuxTeamPromptBlockState(
-  prompt: string,
-  cwd: string,
-  payload: CodexHookPayload,
-  sessionId?: string,
-  threadId?: string,
-  turnId?: string,
-): SkillActiveState | null {
-  if (!readTeamModeConfig(cwd).enabled) return null;
-  const match = detectPrimaryKeyword(prompt);
-  if (match?.skill !== "team") return null;
-
+function isNativeOutsideTmuxUserPrompt(cwd: string, payload: CodexHookPayload, sessionId?: string): boolean {
   const environment = resolveExecutionEnvironment(cwd, {
     hookEventName: "UserPromptSubmit",
     payload,
     canonicalSessionId: sessionId ?? "",
     nativeSessionId: safeString(payload.session_id ?? payload.sessionId).trim(),
   });
-  if (!(environment.launcher === "native" && environment.transport === "outside-tmux")) return null;
+  return environment.launcher === "native" && environment.transport === "outside-tmux";
+}
+
+function buildNativeOutsideTmuxTeamPromptBlockState(
+  classification: KeywordInputClassification,
+  cwd: string,
+  payload: CodexHookPayload,
+  sessionId?: string,
+  threadId?: string,
+  turnId?: string,
+): SkillActiveState | null {
+  const teamMode = readTeamModeConfig(cwd);
+  const match = classification.matches.filter((entry) => teamMode.enabled || entry.skill !== "team")[0] ?? null;
+  if (match?.skill !== "team") return null;
+
+  if (!isNativeOutsideTmuxUserPrompt(cwd, payload, sessionId)) return null;
 
   const nowIso = new Date().toISOString();
   return {
@@ -2428,30 +2432,40 @@ function formatExecutionHandoffList(cwd: string): string {
 }
 
 function buildAdditionalContextMessage(
-  prompt: string,
+  classification: KeywordInputClassification,
   skillState?: SkillActiveState | null,
   cwd: string = process.cwd(),
   payload?: CodexHookPayload,
 ): string | null {
+  const prompt = classification.originalText;
   if (!prompt) return null;
   const promptPriorityMessage = buildPromptPriorityMessage(prompt);
   if (payload && isTypedAgentRolePayload(payload)) {
     return promptPriorityMessage;
   }
   const teamMode = readTeamModeConfig(cwd);
-  const matches = detectKeywords(prompt).filter((entry) => teamMode.enabled || entry.skill !== "team");
+  const matches = classification.matches.filter((entry) => teamMode.enabled || entry.skill !== "team");
   const match = matches[0] ?? null;
   if (!match) {
+    const markedQuestionAnswer = classification.reservedInput === "omx-question-answered";
     const continuedSkill = safeString(skillState?.skill).trim();
-    if (!continuedSkill) return promptPriorityMessage;
+    const eligibleMarkedContinuation = markedQuestionAnswer
+      && skillState?.active === true
+      && (continuedSkill === "autopilot" || continuedSkill === "deep-interview");
+    const eligibleOrdinaryContinuation = classification.reservedInput === null
+      && !classification.hasExplicitLikeInvocation
+      && skillState?.active === true
+      && Boolean(continuedSkill);
+    if (!eligibleMarkedContinuation && !eligibleOrdinaryContinuation) return promptPriorityMessage;
     const deepInterviewPromptActivationNote = skillState?.initialized_mode === "deep-interview"
       ? buildDeepInterviewQuestionBridgeInstruction(cwd, payload)
       : null;
     const deepInterviewConfigPromptActivationNote = buildDeepInterviewConfigInstruction(cwd, skillState);
-    const markedQuestionAnswer = /^\s*\[omx question answered\]/i.test(prompt);
     const autopilotPromptActivationNote = buildAutopilotPromptActivationNote(skillState, { markedQuestionAnswer, cwd, payload, sessionId: safeString(skillState?.session_id).trim() });
     return [
-      `OMX native UserPromptSubmit continued active workflow skill "${continuedSkill}".`,
+      markedQuestionAnswer
+        ? `OMX native UserPromptSubmit continued active workflow skill "${continuedSkill}"; workflow-like tokens inside the marked omx question answer are treated as answer text, not a new workflow activation.`
+        : `OMX native UserPromptSubmit continued active workflow skill "${continuedSkill}".`,
       promptPriorityMessage,
       skillState?.initialized_mode && skillState.initialized_state_path
         ? buildSkillStateCliInstruction(skillState.initialized_mode, skillState.initialized_state_path)
@@ -2465,29 +2479,6 @@ function buildAdditionalContextMessage(
   const detectedKeywordMessage = matches.length > 1
     ? `OMX native UserPromptSubmit detected workflow keywords ${matches.map((entry) => `"${entry.keyword}" -> ${entry.skill}`).join(", ")}.`
     : `OMX native UserPromptSubmit detected workflow keyword "${match.keyword}" -> ${match.skill}.`;
-  const continuedSkill = safeString(skillState?.skill).trim();
-  if (
-    continuedSkill
-    && continuedSkill !== match.skill
-    && /^\s*\[omx question answered\]/i.test(prompt)
-  ) {
-    const deepInterviewPromptActivationNote = skillState?.initialized_mode === "deep-interview"
-      ? buildDeepInterviewQuestionBridgeInstruction(cwd, payload)
-      : null;
-    const deepInterviewConfigPromptActivationNote = buildDeepInterviewConfigInstruction(cwd, skillState);
-    const autopilotPromptActivationNote = buildAutopilotPromptActivationNote(skillState, { markedQuestionAnswer: true, cwd, payload, sessionId: safeString(skillState?.session_id).trim() });
-    return [
-      `OMX native UserPromptSubmit continued active workflow skill "${continuedSkill}"; workflow-like tokens inside the marked omx question answer are treated as answer text, not a new workflow activation.`,
-      promptPriorityMessage,
-      skillState?.initialized_mode && skillState.initialized_state_path
-        ? buildSkillStateCliInstruction(skillState.initialized_mode, skillState.initialized_state_path)
-        : null,
-      deepInterviewPromptActivationNote,
-      deepInterviewConfigPromptActivationNote,
-      autopilotPromptActivationNote,
-      "Follow AGENTS.md routing and preserve workflow transition and planning-safety rules.",
-    ].filter(Boolean).join(" ");
-  }
   const activeSkills = Array.isArray(skillState?.active_skills)
     ? skillState.active_skills.map((entry) => entry.skill)
     : [];
@@ -10130,6 +10121,7 @@ export async function dispatchCodexNativeHook(
   let triageAdditionalContext: string | null = null;
   let goalWorkflowAdditionalContext: string | null = null;
   let ultragoalSteeringAdditionalContext: string | null = null;
+  let promptClassification: KeywordInputClassification | null = null;
 
   const nativeSessionId = safeString(payload.session_id ?? payload.sessionId).trim();
   const threadId = safeString(payload.thread_id ?? payload.threadId).trim();
@@ -10330,6 +10322,9 @@ export async function dispatchCodexNativeHook(
 
   if (hookEventName === "UserPromptSubmit") {
     const prompt = readPromptText(payload);
+    if (!isSubagentPromptSubmit) {
+      promptClassification = classifyKeywordInput(prompt);
+    }
     goalWorkflowAdditionalContext = allowPromptGlobalSideEffects
       ? await buildCompletedGoalCleanupPromptWarning(cwd, prompt).catch(() => null)
         ?? await buildGoalWorkflowReconciliationPromptWarning(cwd, prompt).catch(() => null)
@@ -10356,9 +10351,9 @@ export async function dispatchCodexNativeHook(
         }
       }
     }
-    if (prompt && !isSubagentPromptSubmit && !suppressActivationSeeding) {
+    if (prompt && promptClassification && !isSubagentPromptSubmit && !suppressActivationSeeding) {
       skillState = buildNativeOutsideTmuxTeamPromptBlockState(
-        prompt,
+        promptClassification,
         cwd,
         payload,
         sessionIdForState || undefined,
@@ -10368,6 +10363,8 @@ export async function dispatchCodexNativeHook(
         stateDir,
         sourceCwd: cwd,
         text: prompt,
+        classification: promptClassification,
+        allowSecondaryTeam: !isNativeOutsideTmuxUserPrompt(cwd, payload, sessionIdForState || undefined),
         sessionId: sessionIdForState || undefined,
         threadId,
         turnId,
@@ -10378,7 +10375,15 @@ export async function dispatchCodexNativeHook(
       });
     }
     // --- Triage classifier (advisory-only, non-keyword prompts) ---
-    if (prompt && skillState === null && !isSubagentPromptSubmit && allowPromptGlobalSideEffects) {
+    if (
+      prompt
+      && skillState === null
+      && !isSubagentPromptSubmit
+      && allowPromptGlobalSideEffects
+      && promptClassification?.reservedInput === null
+      && promptClassification.hasExplicitLikeInvocation === false
+      && promptClassification.matches.length === 0
+    ) {
       try {
         if (readTriageConfig().enabled) {
           const normalized = prompt.trim().toLowerCase();
@@ -10512,12 +10517,14 @@ export async function dispatchCodexNativeHook(
       })
       : isSubagentPromptSubmit
         ? null
-        : [
-          buildAdditionalContextMessage(readPromptText(payload), skillState, cwd, payload),
-          ultragoalSteeringAdditionalContext,
-          goalWorkflowAdditionalContext,
-          triageAdditionalContext,
-        ].filter((entry): entry is string => Boolean(entry)).join("\n\n") || null;
+        : promptClassification
+          ? [
+            buildAdditionalContextMessage(promptClassification, skillState, cwd, payload),
+            ultragoalSteeringAdditionalContext,
+            goalWorkflowAdditionalContext,
+            triageAdditionalContext,
+          ].filter((entry): entry is string => Boolean(entry)).join("\n\n") || null
+          : null;
     if (additionalContext) {
       outputJson = {
         hookSpecificOutput: {

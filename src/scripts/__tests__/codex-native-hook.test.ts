@@ -445,21 +445,22 @@ const DEFAULT_AUTO_NUDGE_RESPONSE =
 	"continue with the current task only if it is already authorized";
 
 const TEAM_ENV_KEYS = [
-	"OMX_TEAM_WORKER",
-	"OMX_TEAM_INTERNAL_WORKER",
-	"OMX_TEAM_STATE_ROOT",
-	"OMX_TEAM_LEADER_CWD",
-	"OMX_SESSION_ID",
-	"OMX_ROOT",
-	"OMX_STATE_ROOT",
-	"SESSION_ID",
-	"OMX_QUESTION_RETURN_PANE",
-	"OMX_LEADER_PANE_ID",
-	"TMUX",
-	"TMUX_PANE",
-	"OMX_TMUX_HUD_OWNER",
-	"OMX_NATIVE_STOP_NO_PROGRESS_MAX_REPEATS",
-	"OMX_NATIVE_STOP_NO_PROGRESS_IDLE_MS",
+  "OMX_TEAM_WORKER",
+  "OMX_TEAM_INTERNAL_WORKER",
+  "OMX_TEAM_STATE_ROOT",
+  "OMX_TEAM_LEADER_CWD",
+  "OMX_TEAM_MODE",
+  "OMX_SESSION_ID",
+  "OMX_ROOT",
+  "OMX_STATE_ROOT",
+  "SESSION_ID",
+  "OMX_QUESTION_RETURN_PANE",
+  "OMX_LEADER_PANE_ID",
+  "TMUX",
+  "TMUX_PANE",
+  "OMX_TMUX_HUD_OWNER",
+  "OMX_NATIVE_STOP_NO_PROGRESS_MAX_REPEATS",
+  "OMX_NATIVE_STOP_NO_PROGRESS_IDLE_MS",
 ] as const;
 
 const priorTeamEnv = new Map<
@@ -2002,25 +2003,1150 @@ PY`,
 		}
 	});
 
-	it("does not crash Stop hook dispatch when the exec follow-up queue is malformed", async () => {
-		const cwd = await mkdtemp(
-			join(tmpdir(), "omx-native-stop-exec-followup-corrupt-"),
-		);
-		try {
-			const session = await writeSessionStart(
-				cwd,
-				"sess-exec-followup-corrupt",
-			);
-			const queuePath = join(
-				cwd,
-				".omx",
-				"state",
-				"sessions",
-				session.session_id,
-				"exec-followups.json",
-			);
-			await mkdir(dirname(queuePath), { recursive: true });
-			await writeFile(queuePath, '{"version":1,"records":[', "utf-8");
+  it("preserves all structural blockers through raw UserPromptSubmit state and Stop", async () => {
+    const cases = [
+      { name: "unsafe-token-boundary", prompt: "$ralplan\u200B.md", expectedSkill: null },
+      { name: "at-suffix", prompt: "$ralplan@docs", expectedSkill: null },
+      { name: "hash-suffix", prompt: "$ralplan#docs", expectedSkill: null },
+      { name: "equals-suffix", prompt: "$ralplan=docs", expectedSkill: null },
+      { name: "fullwidth-at-suffix", prompt: "$ralplan＠docs", expectedSkill: null },
+      { name: "fullwidth-hash-suffix", prompt: "$ralplan＃docs", expectedSkill: null },
+      { name: "fullwidth-equals-suffix", prompt: "$ralplan＝docs", expectedSkill: null },
+      { name: "directive-use-ralplan", prompt: "use $ralplan plan this", expectedSkill: "ralplan" },
+      { name: "directive-please-use-ralplan", prompt: "please use $ralplan plan this", expectedSkill: "ralplan" },
+      { name: "directive-run-ralplan", prompt: "run $ralplan plan this", expectedSkill: "ralplan" },
+      { name: "directive-list-use-ralplan", prompt: "- use $ralplan plan this", expectedSkill: "ralplan" },
+      { name: "directive-documentation-then-command", prompt: "use $ralplan is the consensus-planning command\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "directive-documentation-then-implicit-command", prompt: "use $ralplan is the consensus-planning command\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "directive-documentation-trailing-prose-then-command", prompt: "use $ralplan is the workflow command for planning\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "directive-documentation-implicit-prose", prompt: "use $ralplan is the workflow command for autopilot mode", expectedSkill: null },
+      { name: "directive-documentation-alias-prose", prompt: "use $ralplan is the consensus-planning command\nAutopilot mode is its alias.", expectedSkill: null },
+      { name: "directive-coordinated-documentation-then-command", prompt: "- use $ralplan and $autopilot are workflow commands\n$ralph execute it", expectedSkill: "ralph" },
+      { name: "directive-documentation-semicolon-directive", prompt: "use $ralplan is the consensus-planning command; use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "directive-two-documentation-blocks", prompt: "use $ralplan is the consensus-planning command\nuse $autopilot is the autonomous workflow command\n$ralph execute it", expectedSkill: "ralph" },
+      { name: "directive-documentation-embedded-token-then-command", prompt: "use $ralplan is the workflow command for $team\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "directive-documentation-task-noun-followup", prompt: "use $ralplan is the workflow command; use $autopilot update the documentation", expectedSkill: "autopilot" },
+      { name: "directive-documentation-implicit-semicolon-followup", prompt: "use $ralplan is the consensus-planning command; use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "directive-documentation-transition-followup", prompt: "use $ralplan is the consensus-planning command; then use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "directive-documentation-explicit-alias", prompt: "use $ralplan is the consensus-planning command; $team is its alias", expectedSkill: null },
+      { name: "directive-documentation-implicit-chain", prompt: "use $ralplan is the consensus-planning command\nAutopilot mode is its alias.\n$ralph execute it", expectedSkill: "ralph" },
+      { name: "directive-documentation-fullwidth-separator", prompt: "use $ralplan，$autopilot are workflow commands", expectedSkill: null },
+      { name: "directive-documentation-compact-slash", prompt: "use $ralplan/$autopilot are workflow commands\n$ralph execute it", expectedSkill: "ralph" },
+      { name: "reference-prompts-title-then-command", prompt: "[docs]: /target \"title\nUse /prompts:architect\"\n$ralph execute it", expectedSkill: "ralph" },
+      { name: "doc-period-implicit", prompt: "use $ralplan is the consensus-planning command. Use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "doc-bare-implicit", prompt: "use $ralplan is the consensus-planning command; autopilot mode.", expectedSkill: "autopilot" },
+      { name: "doc-fullwidth-semicolon", prompt: "use $ralplan is the consensus-planning command； use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "doc-but-followup", prompt: "use $ralplan is the workflow command; but use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "doc-fullwidth-oxford", prompt: "use $ralplan， $autopilot， and $team are workflow commands", expectedSkill: null },
+      { name: "reference-zero-title", prompt: "[docs]: ./target\n(autopilot mode)", expectedSkill: null },
+      { name: "doc-also-alias-explicit", prompt: "use $ralplan is the consensus-planning command; $team is also its alias", expectedSkill: null },
+      { name: "doc-also-alias-implicit", prompt: "use $ralplan is the consensus-planning command\nAutopilot mode is also its alias.", expectedSkill: null },
+      { name: "doc-embedded-mention", prompt: "use $ralplan is the workflow command; $team appears in the documentation.", expectedSkill: null },
+      { name: "chained-negation", prompt: "$ralplan; $autopilot is prohibited", expectedSkill: "ralplan", expectedDeferredSkills: [] },
+      { name: "long-negation", prompt: `$ralplan; $autopilot${" ".repeat(193)}is prohibited`, expectedSkill: "ralplan", expectedDeferredSkills: [] },
+      { name: "doc-arabic-comma", prompt: "use $ralplan، $autopilot are workflow commands", expectedSkill: null },
+      { name: "arabic-negation", prompt: "$ralplan، $autopilot are prohibited", expectedSkill: null },
+      { name: "implicit-arabic-negation", prompt: "Autopilot mode، deep interview are prohibited.", expectedSkill: null },
+      { name: "fullwidth-frame-reset", prompt: "For instance: manual mode is slower。 Use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "doc-abbreviation", prompt: "use $ralplan is the workflow command, e.g. use $autopilot in examples.", expectedSkill: null },
+      { name: "implicit-doc-mention", prompt: "use $ralplan is the workflow command; autopilot mode appears in the documentation.", expectedSkill: null },
+      { name: "implicit-doc-chain", prompt: "use $ralplan is the workflow command; autopilot mode is its alias; $ralph execute it", expectedSkill: "ralph" },
+      { name: "long-command-gap", prompt: `use $ralplan is the workflow command; use${" ".repeat(161)}$autopilot build it`, expectedSkill: "autopilot" },
+      { name: "ideographic-negation", prompt: "$ralplan、 $autopilot are prohibited", expectedSkill: null },
+      { name: "implicit-ideographic-negation", prompt: "Autopilot mode、 deep interview are prohibited.", expectedSkill: null },
+      { name: "doc-exclamation-followup", prompt: "use $ralplan is the consensus-planning command! run $autopilot", expectedSkill: "autopilot" },
+      { name: "doc-fullwidth-question-followup", prompt: "use $ralplan is the consensus-planning command？ run $autopilot", expectedSkill: "autopilot" },
+      { name: "implicit-doc-predecessor", prompt: "Autopilot mode is workflow documentation.\n$ralph execute it", expectedSkill: "ralph" },
+      { name: "confusable-use-verb", prompt: "uſe $ralplan plan it", expectedSkill: null },
+      { name: "confusable-please-prefix", prompt: "pleaſe use $ralplan plan it", expectedSkill: null },
+      { name: "confusable-prompts-token-then-command", prompt: "/promptſ:architect; use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "reserved-em-dash-boundary", prompt: "/prompts:architect— use autopilot mode", expectedSkill: null },
+      { name: "reserved-fullwidth-comma-boundary", prompt: "/prompts:architect， use autopilot mode", expectedSkill: null },
+      { name: "confusable-implicit-verb", prompt: "Do not use deep interview but uſe autopilot mode.", expectedSkill: null },
+      { name: "frame-fullwidth-colon", prompt: "For instance： use autopilot mode.", expectedSkill: null },
+      { name: "frame-fullwidth-comma", prompt: "For instance， use autopilot mode.", expectedSkill: null },
+      { name: "frame-arabic-comma", prompt: "For instance، use autopilot mode.", expectedSkill: null },
+      { name: "frame-ideo-comma", prompt: "For instance、 use autopilot mode.", expectedSkill: null },
+      { name: "doc-explicit-documented", prompt: "use $ralplan is the workflow command; $autopilot is documented in the guide.", expectedSkill: null },
+      { name: "doc-explicit-described", prompt: "$autopilot is described in the manual.", expectedSkill: null },
+      { name: "doc-comma-followup", prompt: "use $ralplan is the workflow command, but use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "doc-fw-comma-followup", prompt: "use $ralplan is the workflow command， but use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "doc-arabic-followup", prompt: "use $ralplan is the workflow command، but use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "doc-ideo-followup", prompt: "use $ralplan is the workflow command、 but use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "neg-arabic-followup", prompt: "Do not run $ralplan، use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "neg-ideo-followup", prompt: "Do not run $ralplan、 use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "implicit-doc-prefix-next", prompt: "The docs mention autopilot mode.\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "implicit-doc-prefix-same-line", prompt: "The docs mention autopilot mode; use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "implicit-doc-subject-same-line", prompt: "Autopilot mode is workflow documentation; use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "compact-explicit-negation", prompt: "$ralplan,$autopilot are prohibited", expectedSkill: null },
+      { name: "compact-implicit-negation", prompt: "Autopilot mode،deep interview are prohibited.", expectedSkill: null },
+      { name: "doc-clause-local-prefix", prompt: "$ralplan; $autopilot is documented in the guide.", expectedSkill: "ralplan" },
+      { name: "doc-chain-described", prompt: "use $ralplan is the workflow command; autopilot mode is documented in the guide; $team execute it", expectedSkill: "team", expectedStopBlock: false, insideTmux: true },
+      { name: "doc-chain-workflow", prompt: "use $ralplan is the workflow command; autopilot mode is workflow documentation; use $ralph execute it", expectedSkill: "ralph" },
+      { name: "ref-inline-explicit", prompt: "[docs]: $ralplan\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "ref-inline-prompts", prompt: "[docs]: /prompts:architect\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "list-fullwidth-explicit-doc", prompt: "- $ralplan： consensus-planning workflow", expectedSkill: null },
+      { name: "list-fullwidth-implicit-doc", prompt: "- autopilot mode： autonomous workflow command", expectedSkill: null },
+      { name: "possessive-straight", prompt: "$ralplan's workflow is documented", expectedSkill: null },
+      { name: "possessive-curly", prompt: "$ralplan’s workflow is documented", expectedSkill: null },
+      { name: "possessive-fullwidth", prompt: "$ralplan＇s workflow is documented", expectedSkill: null },
+      { name: "possessive-prompts", prompt: "/prompts:architect's syntax is documented", expectedSkill: null },
+      { name: "malformed-prefix-kata", prompt: "$・autopilot mode", expectedSkill: null },
+      { name: "malformed-prefix-half", prompt: "$･autopilot mode", expectedSkill: null },
+      { name: "malformed-prefix-arabic", prompt: "$٪autopilot mode", expectedSkill: null },
+      { name: "malformed-prefix-division", prompt: "$∕autopilot mode", expectedSkill: null },
+      { name: "doc-but-directive", prompt: "use $autopilot is documented but use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "list-directive-fw-colon", prompt: "- use $ralplan： consensus-planning workflow", expectedSkill: null },
+      { name: "doc-arabic-question", prompt: "use $ralplan is the workflow command؟ run $autopilot", expectedSkill: "autopilot" },
+      { name: "arabic-semicolon-negation", prompt: "$ralplan؛ $autopilot is prohibited", expectedSkill: "ralplan", expectedDeferredSkills: [] },
+      { name: "confusable-postposed-transition", prompt: "$ralplan is prohibited but uſe autopilot mode.", expectedSkill: null },
+      { name: "mixed-negation", prompt: "Autopilot mode and $ralplan are prohibited.", expectedSkill: null },
+      { name: "both-mixed-negation", prompt: "Both autopilot mode and $ralplan are prohibited.", expectedSkill: null },
+      { name: "mixed-documentation", prompt: "use $ralplan and autopilot mode are workflow commands", expectedSkill: null },
+      { name: "prose-doc-no-reopen", prompt: "$ralplan is prohibited because docs use $autopilot.", expectedSkill: null },
+      { name: "neg-fw-dot-reopen", prompt: "Do not run $ralplan． use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "neg-greek-q-reopen", prompt: "Do not run $ralplan; use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "unicode-attached-contrast", prompt: "Do not use deep interview яbut use autopilot mode.", expectedSkill: null },
+      { name: "prefix-list-followup", prompt: "Do not run $ralplan, $autopilot; use $team execute it", expectedSkill: "team", expectedStopBlock: false, insideTmux: true },
+      { name: "mixed-postposed-chain", prompt: "$ralplan, autopilot mode, $team are prohibited.", expectedSkill: null },
+      { name: "implicit-first-doc-chain", prompt: "Autopilot mode and $ralplan are workflow commands; use $team execute it", expectedSkill: "team", expectedStopBlock: false, insideTmux: true },
+      { name: "both-mixed-doc-followup", prompt: "Both autopilot mode and $ralplan are workflow commands; use $team execute it", expectedSkill: "team", expectedStopBlock: false, insideTmux: true },
+      { name: "doc-semicolon-preserves-earlier", prompt: "Use autopilot mode; use $ralplan is the workflow command.", expectedSkill: "autopilot" },
+      { name: "doc-independent-comma", prompt: "Use autopilot mode, and $ralplan is documented in the guide.", expectedSkill: "autopilot" },
+      { name: "reference-unclosed-quote-destination", prompt: "[docs]: \"target\n$autopilot build it", expectedSkill: null },
+      { name: "reference-unclosed-inline-destination", prompt: "[docs]: `target\n$autopilot build it", expectedSkill: null },
+      { name: "mixed-prefix-negation-implicit", prompt: "Do not run $ralplan and use autopilot mode.", expectedSkill: null },
+      { name: "repeated-postposed-followup", prompt: "$team is prohibited and is forbidden; use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "doc-preserves-earlier", prompt: "Use autopilot mode; \"note\"; use $ralplan is the workflow command.", expectedSkill: "autopilot" },
+      { name: "doc-colon-followup", prompt: "use $ralplan is the workflow command: use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "table-followup", prompt: "Mode | Meaning\n--- | ---\nmanual | documentation\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "neg-advance-reopen", prompt: "Do not run $ralplan but advance to $ultragoal", expectedSkill: "ultragoal", expectedStopBlock: false },
+      { name: "neg-jump-reopen", prompt: "Do not run $ralplan but jump straight to $ultragoal", expectedSkill: "ultragoal", expectedStopBlock: false },
+      { name: "reference-plain-title", prompt: "[docs]: /target \"title\nplain text\"\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "reference-plain-destination", prompt: "[docs]: ./target\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "directive-use-the", prompt: "Do not run $ralplan; use the $autopilot build it", expectedSkill: "autopilot" },
+      { name: "directive-continue-after-quote", prompt: "\"quoted\"\ncontinue with $ralplan", expectedSkill: "ralplan" },
+      { name: "doc-advance-followup", prompt: "use $ralplan is the workflow command; advance to $ultragoal", expectedSkill: "ultragoal", expectedStopBlock: false },
+      { name: "directive-run-analyze", prompt: "run $analyze", expectedSkill: "analyze", expectedStopBlock: false },
+      { name: "directive-run-code-review", prompt: "run $code-review", expectedSkill: "code-review", expectedStopBlock: false },
+      { name: "directive-please-use-code-review", prompt: "please use $code-review", expectedSkill: "code-review", expectedStopBlock: false },
+      { name: "directive-please-run-ralplan", prompt: "please run $ralplan plan this", expectedSkill: "ralplan" },
+      { name: "directive-start-ralplan", prompt: "start $ralplan plan this", expectedSkill: "ralplan" },
+      { name: "directive-enable-deep-interview", prompt: "enable $deep-interview", expectedSkill: "deep-interview", expectedStopBlock: false },
+      { name: "directive-launch-autopilot", prompt: "launch $autopilot", expectedSkill: "autopilot" },
+      { name: "directive-invoke-ralph", prompt: "invoke $ralph", expectedSkill: "ralph" },
+      { name: "directive-activate-ultrawork", prompt: "activate $ultrawork", expectedSkill: "ultrawork" },
+      { name: "directive-resume-ralplan", prompt: "resume $ralplan plan this", expectedSkill: "ralplan" },
+      { name: "directive-continue-code-review", prompt: "continue $code-review", expectedSkill: "code-review", expectedStopBlock: false },
+      { name: "directive-documentation", prompt: "use $ralplan is the consensus-planning command", expectedSkill: null },
+      { name: "g1a-ordered-multi-skill", prompt: "$ralplan, $autopilot; $team", expectedSkill: "ralplan", expectedDeferredSkills: ["autopilot", "team"], expectedActiveSkills: ["ralplan"], expectedActiveDetailSkills: ["ralplan"], insideTmux: true },
+      { name: "g1c-duplicate-alias", prompt: "$autopilot $oh-my-codex:autopilot build it", expectedSkill: "autopilot", expectedDeferredSkills: [], expectedActiveSkills: ["autopilot"] },
+      { name: "b3-longer-valid-fence", prompt: "```text\n$ralplan plan it\n````\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "b4-shorter-invalid-fence", prompt: "````text\n$ralplan plan it\n```\n$autopilot build it", expectedSkill: null },
+      { name: "b5-different-marker-invalid-fence", prompt: "```text\n$ralplan plan it\n~~~\n$autopilot build it", expectedSkill: null },
+      { name: "directive-non-leading-prose", prompt: "The docs say use $ralplan plan this", expectedSkill: null },
+      { name: "nested-bounded-child-unbounded-parent", prompt: "\"`x`\n$ralplan plan it", expectedSkill: null },
+      { name: "first-contiguous-block-terminal", prompt: "$ralplan plan it\n\"x\"\n$autopilot build it", expectedSkill: "ralplan", expectedDeferredSkills: [] },
+      { name: "leading-reserved-dominance", prompt: "/prompts:architect\n\"x\"\n$ralplan plan it", expectedSkill: null },
+      { name: "list-fence-root-opener", prompt: "- ```\n  sample\n```\n$ralplan plan it", expectedSkill: null },
+      { name: "list-fence-relative-closer", prompt: "- ```\n  sample\n    ```\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "reference-multiline-title-explicit", prompt: "[docs]: /target \"title\nuse /prompts:architect\n$ralplan plan it\"", expectedSkill: null },
+      { name: "reference-multiline-title-implicit", prompt: "[docs]: /target \"title\nuse autopilot mode\"", expectedSkill: null },
+      { name: "reference-next-line-title", prompt: "[docs]: ./target\n  (autopilot mode)", expectedSkill: null },
+      { name: "reference-next-line-destination-title", prompt: "[docs]:\n  ./target\n  (autopilot mode)", expectedSkill: null },
+      { name: "kelvin-case-fold-suffix", prompt: "$ultraworK execute", expectedSkill: null },
+      { name: "katakana-middle-dot-suffix", prompt: "$ralplan・suffix plan it", expectedSkill: null },
+      { name: "halfwidth-middle-dot-suffix", prompt: "$ralplan･suffix plan it", expectedSkill: null },
+      { name: "arabic-percent-suffix", prompt: "$ralplan٪docs", expectedSkill: null },
+      { name: "division-slash-suffix", prompt: "$ralplan∕config", expectedSkill: null },
+      { name: "implicit-negative", prompt: "Do not use autopilot mode.", expectedSkill: null },
+      { name: "implicit-negative-list", prompt: "Do not use deep interview, autopilot mode.", expectedSkill: null },
+      { name: "implicit-negative-nor", prompt: "Do not use deep interview, nor autopilot mode.", expectedSkill: null },
+      { name: "implicit-negative-avoid", prompt: "Avoid autopilot mode.", expectedSkill: null },
+      { name: "implicit-negative-suffix", prompt: "Autopilot mode is not allowed.", expectedSkill: null },
+      { name: "implicit-negative-contraction", prompt: "Autopilot mode isn't allowed.", expectedSkill: null },
+      { name: "implicit-negative-prohibited", prompt: "Autopilot mode is prohibited.", expectedSkill: null },
+      { name: "implicit-no-prefix", prompt: "No autopilot mode.", expectedSkill: null },
+      { name: "implicit-quoted-doc", prompt: "The docs call this \"autopilot mode\".", expectedSkill: null },
+      { name: "implicit-fenced", prompt: "```\nautopilot mode\n```", expectedSkill: null },
+      { name: "implicit-list-fenced", prompt: "- ```\n  autopilot mode\n  ```", expectedSkill: null },
+      { name: "implicit-sibling-list-fence", prompt: "- ```\n  first example\n- ```\n  autopilot mode\n  ```", expectedSkill: null },
+      { name: "implicit-prompts-protocol", prompt: "use /prompts:architect autopilot mode", expectedSkill: null },
+      { name: "implicit-quoted-prompts-positive", prompt: "Ignore the quoted \"/prompts:architect\" and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-doc-verb", prompt: "This documents autopilot mode.", expectedSkill: null },
+      { name: "implicit-guide-frame", prompt: "The guide says do not use deep interview but instead use autopilot mode.", expectedSkill: null },
+      { name: "implicit-markdown-link", prompt: "[autopilot mode](./docs.md)", expectedSkill: null },
+      { name: "implicit-markdown-heading", prompt: "## Autopilot mode", expectedSkill: null },
+      { name: "implicit-markdown-table", prompt: "| autopilot mode | workflow command |", expectedSkill: null },
+      { name: "implicit-dash-documentation", prompt: "Autopilot mode — autonomous workflow command", expectedSkill: null },
+      { name: "implicit-unicode-adjacency", prompt: "문서autopilot mode한글", expectedSkill: null },
+      { name: "implicit-korean-negative", prompt: "autopilot mode는 사용하지 마세요", expectedSkill: null },
+      { name: "implicit-postposed-coordinated-negative", prompt: "Autopilot mode and deep interview are prohibited.", expectedSkill: null },
+      { name: "implicit-postposed-modal-negative", prompt: "Autopilot mode should be avoided.", expectedSkill: null },
+      { name: "implicit-example-frame", prompt: "Example: do not use deep interview but instead use autopilot mode.", expectedSkill: null },
+      { name: "implicit-fullwidth-single-quote", prompt: "＇autopilot mode＇", expectedSkill: null },
+      { name: "escaped-plugin-autopilot", prompt: "\\$oh-my-codex:autopilot mode", expectedSkill: null },
+      { name: "implicit-comma-coordinated-negative", prompt: "Autopilot mode, deep interview, and team are prohibited.", expectedSkill: null },
+      { name: "implicit-for-example-frame", prompt: "For example, do not use deep interview but instead use autopilot mode.", expectedSkill: null },
+      { name: "implicit-docs-comma-frame", prompt: "According to the docs, do not use deep interview but instead use autopilot mode.", expectedSkill: null },
+      { name: "implicit-curly-dont-negative", prompt: "Don’t use autopilot mode.", expectedSkill: null },
+      { name: "implicit-fullwidth-dont-negative", prompt: "Don＇t use autopilot mode.", expectedSkill: null },
+      { name: "implicit-curly-isnt-negative", prompt: "Autopilot mode isn’t allowed.", expectedSkill: null },
+      { name: "implicit-copular-infinitive-negative", prompt: "Autopilot mode is to be avoided.", expectedSkill: null },
+      { name: "implicit-past-copular-infinitive-negative", prompt: "Autopilot mode was to be disabled.", expectedSkill: null },
+      { name: "implicit-article-coordinated-negative", prompt: "Autopilot mode and the deep interview workflow are prohibited.", expectedSkill: null },
+      { name: "implicit-as-example-frame", prompt: "As an example, do not use deep interview but instead use autopilot mode.", expectedSkill: null },
+      { name: "implicit-for-instance-frame", prompt: "For instance, do not use deep interview but instead use autopilot mode.", expectedSkill: null },
+      { name: "implicit-markdown-reference-link", prompt: "[autopilot mode][docs]", expectedSkill: null },
+      { name: "implicit-plural-coordinated-negative", prompt: "Autopilot mode and deep interview workflows are prohibited.", expectedSkill: null },
+      { name: "implicit-as-example-governing-frame", prompt: "As an example, ignore the docs and use autopilot mode.", expectedSkill: null },
+      { name: "implicit-for-instance-governing-frame", prompt: "For instance, ignore the docs and use autopilot mode.", expectedSkill: null },
+      { name: "implicit-markdown-definition", prompt: "[autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-markdown-shortcut-label", prompt: "[autopilot mode]", expectedSkill: null },
+      { name: "implicit-markdown-setext", prompt: "Autopilot mode\n===", expectedSkill: null },
+      { name: "explicit-markdown-pipe-table", prompt: "$ralplan | workflow\n--- | ---", expectedSkill: null },
+      { name: "implicit-markdown-table-body", prompt: "Mode | Meaning\n--- | ---\nautopilot mode | autonomous workflow command", expectedSkill: null },
+      { name: "implicit-as-well-as-negative", prompt: "Autopilot mode as well as deep interview workflows are prohibited.", expectedSkill: null },
+      { name: "implicit-along-with-negative", prompt: "Autopilot mode along with deep interview workflows are prohibited.", expectedSkill: null },
+      { name: "implicit-together-with-negative", prompt: "Autopilot mode together with deep interview workflows are prohibited.", expectedSkill: null },
+      { name: "implicit-ampersand-negative", prompt: "Autopilot mode & deep interview workflows are prohibited.", expectedSkill: null },
+      { name: "implicit-example-colon-frame", prompt: "As an example: ignore the docs and use autopilot mode.", expectedSkill: null },
+      { name: "implicit-instance-em-dash-frame", prompt: "For instance — ignore the docs and use autopilot mode.", expectedSkill: null },
+      { name: "implicit-example-hyphen-frame", prompt: "For example - ignore the docs and use autopilot mode.", expectedSkill: null },
+      { name: "implicit-instance-colon-frame-no-doc-word", prompt: "For instance: use autopilot mode.", expectedSkill: null },
+      { name: "implicit-instance-em-dash-frame-no-doc-word", prompt: "For instance — use autopilot mode.", expectedSkill: null },
+      { name: "implicit-markdown-later-table-body", prompt: "Mode | Meaning\n--- | ---\nmanual | docs\nautopilot mode | autonomous workflow command", expectedSkill: null },
+      { name: "implicit-embedded-shortcut-definition", prompt: "See [autopilot mode] for details.\n\n[autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-parenthetical-as-well-negative", prompt: "Autopilot mode, as well as deep interview workflows, are prohibited.", expectedSkill: null },
+      { name: "implicit-parenthetical-along-negative", prompt: "Autopilot mode, along with deep interview workflows, are prohibited.", expectedSkill: null },
+      { name: "implicit-parenthetical-together-negative", prompt: "Autopilot mode, together with deep interview workflows, are prohibited.", expectedSkill: null },
+      { name: "implicit-normalized-shortcut-definition", prompt: "See [autopilot   mode] for details.\n\n[autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-ignore-exclusion", prompt: "Ignore autopilot mode.", expectedSkill: null },
+      { name: "implicit-skip-exclusion", prompt: "Skip autopilot mode.", expectedSkill: null },
+      { name: "implicit-exclude-exclusion", prompt: "Exclude autopilot mode.", expectedSkill: null },
+      { name: "explicit-postposed-prohibited", prompt: "$ralplan is prohibited.", expectedSkill: null },
+      { name: "explicit-postposed-modal-negative", prompt: "$ralplan should not be run.", expectedSkill: null },
+      { name: "explicit-postposed-coordinated-negative", prompt: "$ralplan and $autopilot are prohibited.", expectedSkill: null },
+      { name: "explicit-postposed-article-coordination", prompt: "$ralplan and the $autopilot workflow are prohibited.", expectedSkill: null },
+      { name: "explicit-postposed-implicit-coordination", prompt: "$ralplan and autopilot mode are prohibited.", expectedSkill: null },
+      { name: "implicit-blockquote-reference-definition", prompt: "See [autopilot mode] for details.\n\n> [autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-list-reference-definition", prompt: "See [autopilot mode] for details.\n\n- [autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-indented-blockquote-reference-definition", prompt: "See [autopilot mode] for details.\n\n>   [autopilot mode]: ./docs", expectedSkill: null },
+      { name: "explicit-list-contained-indented-code", prompt: "-     $ralplan", expectedSkill: null },
+      { name: "implicit-list-contained-indented-code", prompt: "1.     autopilot mode", expectedSkill: null },
+      { name: "implicit-four-space-blockquote-definition", prompt: "See [autopilot mode] for details.\n\n>    [autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-multiline-reference-definition", prompt: "See [autopilot mode] for details.\n\n[autopilot mode]:\n  ./docs", expectedSkill: null },
+      { name: "explicit-list-tab-code-boundary", prompt: "-   \t$ralplan", expectedSkill: null },
+      { name: "implicit-nested-list-contained-code", prompt: "- -     autopilot mode", expectedSkill: null },
+      { name: "implicit-list-nested-blockquote", prompt: "- > autopilot mode", expectedSkill: null },
+      { name: "implicit-deep-nested-list-contained-code", prompt: "- - - - - - - - -     autopilot mode", expectedSkill: null },
+      { name: "implicit-ordered-list-nested-blockquote", prompt: "1234. > autopilot mode", expectedSkill: null },
+      { name: "explicit-nested-list-positive", prompt: "- - $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-four-digit-ordered-list-positive", prompt: "1234. $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-list-fence-then-positive", prompt: "- ```\n  $ralplan\n  ```\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "explicit-nested-list-doc-then-positive", prompt: "- - $ralplan is the consensus-planning command\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "explicit-after-closed-blockquote", prompt: "> quoted context\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-after-closed-fence", prompt: "```text\nquoted context\n```\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-after-indented-code", prompt: "    quoted context\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-after-closed-quote", prompt: "\"quoted context\"\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-after-prompts-context", prompt: "Use /prompts:architect.\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-after-bare-prompts-precedence", prompt: "Prose\n/prompts:architect\n$ralplan plan this", expectedSkill: null },
+      { name: "explicit-after-unclosed-fence", prompt: "```text\nquoted context\n$ralplan plan it", expectedSkill: null },
+      { name: "explicit-after-mismatched-fence", prompt: "```text\nquoted context\n~~~\n$ralplan plan it", expectedSkill: null },
+      { name: "explicit-after-unclosed-quote", prompt: "\"quoted context\n$ralplan plan it", expectedSkill: null },
+      { name: "explicit-after-blockquote-prose", prompt: "> quoted context\nThe docs mention $ralplan only", expectedSkill: null },
+      { name: "explicit-after-quote-negative", prompt: "\"quoted context\"\nDo not run $ralplan", expectedSkill: null },
+      { name: "explicit-stale-predecessor-prose", prompt: "> quoted context\nProse\n$ralplan implement this", expectedSkill: null },
+      { name: "explicit-stale-predecessor-directive-clause", prompt: "> quoted context\nProse\nUse $ralplan plan this", expectedSkill: null },
+      { name: "explicit-stale-predecessor-prompts", prompt: "> quoted context\n/prompts:architect\n$ralplan plan this", expectedSkill: null },
+      { name: "explicit-stale-predecessor-second-block", prompt: "> quoted context\n$ralplan plan it\nLater discussion.\n$autopilot build it", expectedSkill: "ralplan", expectedDeferredSkills: [] },
+      { name: "explicit-negative-before-unclosed-quote", prompt: "Do not run $ralplan.\n\"unclosed context\n$autopilot build it", expectedSkill: null },
+      { name: "explicit-reference-before-unclosed-quote", prompt: "[$ralplan]: ./docs\n\"unclosed context\n$autopilot build it", expectedSkill: null },
+      { name: "explicit-prompts-inside-unclosed-quote", prompt: "\"Use /prompts:architect\n$ralplan plan it", expectedSkill: null },
+      { name: "explicit-malformed-prompts-suffix", prompt: "/prompts:architect한글\n$ralplan plan it", expectedSkill: null },
+      { name: "explicit-nested-list-prompts-positive", prompt: "- Use /prompts:architect.\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-nested-list-fence-positive", prompt: "- - ```\n    quoted context\n    ```\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "implicit-reference-destination", prompt: "[docs]:\nautopilot", expectedSkill: null },
+      { name: "explicit-middle-dot-suffix", prompt: "$ralplan·suffix plan it", expectedSkill: null },
+      { name: "explicit-percent-suffix", prompt: "$ralplan%docs", expectedSkill: null },
+      { name: "explicit-fullwidth-percent-suffix", prompt: "$ralplan％docs", expectedSkill: null },
+      { name: "explicit-postposed-also-negative", prompt: "$ralplan is also prohibited.", expectedSkill: null },
+      { name: "implicit-postposed-still-negative", prompt: "Autopilot mode is still prohibited.", expectedSkill: null },
+      { name: "implicit-commonmark-case-fold", prompt: "See [ẞ autopilot mode] for details.\n\n[SS autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-commonmark-escaped-bracket", prompt: "See [foo\\] autopilot mode] for details.\n\n[foo\\] autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-version-decimal-frame", prompt: "For instance: in version 1.2, use autopilot mode.", expectedSkill: null },
+      { name: "implicit-abbreviation-frame", prompt: "For instance: e.g. use autopilot mode.", expectedSkill: null },
+      { name: "implicit-slash-documentation", prompt: "Autopilot mode / deep interview are workflow commands.", expectedSkill: null },
+      { name: "implicit-low-quote", prompt: "„autopilot mode“", expectedSkill: null },
+      { name: "slash-list-documentation", prompt: "- $ralplan / $autopilot are workflow commands", expectedSkill: null },
+      { name: "compact-slash-list-documentation", prompt: "- $ralplan/$autopilot are workflow commands", expectedSkill: null },
+      { name: "slash-list-composition", prompt: "- $ralplan / $autopilot are workflow commands\n$autopilot execute it", expectedSkill: "autopilot" },
+      { name: "compact-slash-list-composition", prompt: "- $ralplan/$autopilot are workflow commands\n$autopilot execute it", expectedSkill: "autopilot" },
+      { name: "but-use-positive", prompt: "Do not run $ralplan but use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "but-instead-use-positive", prompt: "Do not run $ralplan but instead use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "em-dash-instead-use-positive", prompt: "Do not run $ralplan — instead use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "implicit-positive-contrast", prompt: "Do not use deep interview, but use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-but-instead-positive", prompt: "Do not use deep interview but instead use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-list-verb-positive", prompt: "List files and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-dont-stop-positive", prompt: "No, don't stop.", expectedSkill: "ralph" },
+      { name: "implicit-doc-suffix", prompt: "autopilot mode is workflow documentation.", expectedSkill: null },
+      { name: "implicit-inline-code", prompt: "`autopilot mode`", expectedSkill: null },
+      { name: "implicit-blockquote", prompt: "> autopilot mode", expectedSkill: null },
+      { name: "implicit-doc-then-positive", prompt: "Autopilot mode is workflow documentation.\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "prompts-then-positive", prompt: "Use /prompts:architect.\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "mixed-negative-explicit-positive-implicit", prompt: "Do not run $ralplan but instead use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "mixed-quoted-explicit-positive-implicit", prompt: "Ignore \"$ralplan\" and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "escaped-prompts-positive-implicit", prompt: "Ignore \\/prompts:architect and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "url-prompts-positive-implicit", prompt: "See https://example.com/prompts:architect and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-positive-modal-used", prompt: "Autopilot mode should be used.", expectedSkill: "autopilot" },
+      { name: "implicit-positive-modal-enabled", prompt: "Autopilot mode must be enabled.", expectedSkill: "autopilot" },
+      { name: "implicit-positive-modal-run", prompt: "Autopilot mode can be run.", expectedSkill: "autopilot" },
+      { name: "implicit-fullwidth-possessive-positive", prompt: "User＇s request: use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "markdown-prompts-link-positive", prompt: "See [/prompts:architect](./docs.md) and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-subordinate-positive", prompt: "Use autopilot mode, while deep interview is prohibited.", expectedSkill: "autopilot" },
+      { name: "docs-sentence-then-positive", prompt: "Read the docs. Use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "docs-semicolon-then-positive", prompt: "The docs are stale; use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "docs-comma-directive-positive", prompt: "Ignore the docs, use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "escaped-prompts-explicit-followup", prompt: "Ignore \\/prompts:architect\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "url-prompts-explicit-followup", prompt: "See https://example.com/prompts:architect\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "link-prompts-explicit-followup", prompt: "See [/prompts:architect](./docs.md)\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "linked-explicit-implicit-positive", prompt: "See [$ralplan](./docs.md) and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "url-explicit-implicit-positive", prompt: "See https://example.com/$ralplan and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-coordinated-clause-positive", prompt: "Use autopilot mode, and deep interview is prohibited.", expectedSkill: "autopilot" },
+      { name: "docs-and-directive-positive", prompt: "Ignore the docs and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "escaped-prompts-same-line-explicit", prompt: "Ignore \\/prompts:architect; use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "url-prompts-same-line-explicit", prompt: "See https://example.com/prompts:architect; use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "link-prompts-same-line-explicit", prompt: "See [/prompts:architect](./docs.md); use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "reference-prompts-same-line-explicit", prompt: "See [/prompts:architect][docs]; use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "heading-prompts-explicit-followup", prompt: "## /prompts:architect\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "table-prompts-explicit-followup", prompt: "| /prompts:architect |\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "heading-explicit-implicit-positive", prompt: "## $ralplan\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "table-explicit-implicit-positive", prompt: "| $ralplan |\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "reference-explicit-implicit-positive", prompt: "See [$ralplan][docs] and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "windows-path-explicit-implicit-positive", prompt: "See C:\\docs\\$ralplan and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-fullwidth-plural-possessive-positive", prompt: "Users＇ request: use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-modal-coordinated-clause-positive", prompt: "Use autopilot mode, and deep interview should be avoided.", expectedSkill: "autopilot" },
+      { name: "docs-but-directive-positive", prompt: "Ignore the docs but use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "prompts-markdown-definition-explicit-followup", prompt: "[/prompts:architect]: ./docs\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "prompts-markdown-shortcut-explicit-followup", prompt: "[/prompts:architect]\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-markdown-definition-implicit-positive", prompt: "[$ralplan]: ./docs\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "explicit-markdown-shortcut-implicit-positive", prompt: "[$ralplan]\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "explicit-markdown-setext-implicit-positive", prompt: "$ralplan\n===\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "explicit-markdown-pipe-table-implicit-positive", prompt: "$ralplan | workflow\n--- | ---\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "heading-explicit-later-explicit", prompt: "## $ralplan\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "linked-explicit-later-explicit", prompt: "See [$ralplan](./docs.md); use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "windows-path-explicit-later-explicit", prompt: "See C:\\docs\\$ralplan; use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "table-body-explicit-later-explicit", prompt: "Mode | Meaning\n--- | ---\n$ralplan | planning\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "embedded-shortcut-explicit-implicit-positive", prompt: "See [$ralplan] for details.\n\n[$ralplan]: ./docs\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "quoted-explicit-later-explicit", prompt: "Ignore \"$ralplan\" and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "inline-code-explicit-later-explicit", prompt: "Ignore `$ralplan` and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "normalized-shortcut-explicit-implicit-positive", prompt: "See [$ralplan   ] for details.\n\n[$ralplan]: ./docs\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "intro-frame-sentence-reset-positive", prompt: "For instance: manual mode is slower. Use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "inline-link-overlap-later-explicit", prompt: "See [`$ralplan`](./docs.md) and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "implicit-exclusion-later-positive", prompt: "Ignore deep interview and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "link-destination-later-explicit", prompt: "See [docs](https://example.com/$ralplan) and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "link-title-later-explicit", prompt: "See [docs](./docs.md \"$ralplan reference\") and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "nested-destination-later-explicit", prompt: "See [docs](https://example.com/(v1)/$ralplan) and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "nested-link-text-later-explicit", prompt: "See [$ralplan](https://example.com/(v1)) and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "quoted-title-parenthesis-later-explicit", prompt: "See [docs](./docs.md \"$ralplan (reference\") and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "blockquote-code-definition-boundary", prompt: "See [autopilot mode] for details.\n\n>     [autopilot mode]: ./docs", expectedSkill: "autopilot" },
+      { name: "explicit-list-tab-content-boundary", prompt: "-\t $ralplan", expectedSkill: "ralplan" },
+      { name: "postposed-negative-but-later-explicit", prompt: "$ralplan is prohibited but use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "postposed-negative-and-later-explicit", prompt: "$ralplan is prohibited and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "later-positive", prompt: "Do not run $ralplan, instead $autopilot build it", expectedSkill: "autopilot" },
+      { name: "list-documentation", prompt: "- $ralplan, $autopilot are workflow commands", expectedSkill: null },
+      { name: "list-composition", prompt: "- $ralplan is the consensus-planning command\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "escaped-quote", prompt: "\"$ralplan \\\"; $autopilot build it", expectedSkill: null },
+      { name: "fence-prefix", prompt: "```\n$ralplan\n> ```\n$autopilot build it", expectedSkill: null },
+      { name: "matching-fence-control", prompt: "> ```\n> $ralplan\n> ```\n$autopilot build it", expectedSkill: "autopilot" },
+    ] as const;
+
+    for (const testCase of cases) {
+      const cwd = await mkdtemp(join(tmpdir(), `omx-native-raw-classification-${testCase.name}-`));
+      const sessionId = `sess-raw-${testCase.name}`;
+      const previousTmux = process.env.TMUX;
+      const previousTmuxPane = process.env.TMUX_PANE;
+      const previousTeamMode = process.env.OMX_TEAM_MODE;
+      if ("insideTmux" in testCase && testCase.insideTmux) {
+        process.env.TMUX = "/tmp/tmux-pr3140-regression";
+        process.env.TMUX_PANE = "%3140";
+        process.env.OMX_TEAM_MODE = "enabled";
+      } else {
+        delete process.env.TMUX;
+        delete process.env.TMUX_PANE;
+        delete process.env.OMX_TEAM_MODE;
+      }
+      try {
+        const submit = await dispatchCodexNativeHook({
+          hook_event_name: "UserPromptSubmit",
+          cwd,
+          source: "codex-app",
+          session_id: sessionId,
+          thread_id: `thread-${testCase.name}`,
+          turn_id: `turn-${testCase.name}`,
+          prompt: testCase.prompt,
+        }, { cwd });
+        assert.equal((submit.outputJson as { continue?: boolean } | null)?.continue, undefined, testCase.name);
+
+        const sessionDir = join(cwd, ".omx", "state", "sessions", sessionId);
+        const skillStatePath = join(sessionDir, "skill-active-state.json");
+        if (testCase.expectedSkill === null) {
+          assert.equal(existsSync(skillStatePath), false, testCase.name);
+        } else {
+          const skillState = JSON.parse(await readFile(skillStatePath, "utf-8")) as { active?: boolean; skill?: string; deferred_skills?: string[]; active_skills?: Array<{ skill?: string }> };
+          assert.equal(skillState.active, true, testCase.name);
+          assert.equal(skillState.skill, testCase.expectedSkill, testCase.name);
+          if ("expectedDeferredSkills" in testCase) {
+            assert.deepEqual(skillState.deferred_skills ?? [], testCase.expectedDeferredSkills, testCase.name);
+          }
+          if ("expectedActiveSkills" in testCase) {
+            assert.deepEqual(skillState.active_skills?.map((entry) => entry.skill) ?? [], testCase.expectedActiveSkills, testCase.name);
+          }
+          if ("expectedActiveDetailSkills" in testCase) {
+            const activeDetailSkills = (await Promise.all(["ralplan", "autopilot"].map(async (skill) => {
+              const detailPath = join(sessionDir, `${skill}-state.json`);
+              if (!existsSync(detailPath)) return null;
+              const detailState = JSON.parse(await readFile(detailPath, "utf-8")) as { active?: boolean };
+              return detailState.active ? skill : null;
+            }))).filter((skill): skill is string => skill !== null);
+            assert.deepEqual(activeDetailSkills, testCase.expectedActiveDetailSkills, testCase.name);
+          }
+        }
+
+        const stop = await dispatchCodexNativeHook({
+          hook_event_name: "Stop",
+          cwd,
+          source: "codex-app",
+          session_id: sessionId,
+          thread_id: `thread-${testCase.name}`,
+          turn_id: `stop-${testCase.name}`,
+        }, { cwd });
+        if (testCase.expectedSkill === null) assert.equal(stop.outputJson, null, testCase.name);
+        else if ("expectedStopBlock" in testCase && !testCase.expectedStopBlock) {
+          assert.notEqual((stop.outputJson as { decision?: string } | null)?.decision, "block", testCase.name);
+        } else assert.equal((stop.outputJson as { decision?: string } | null)?.decision, "block", testCase.name);
+      } finally {
+        if (previousTmux === undefined) delete process.env.TMUX;
+        else process.env.TMUX = previousTmux;
+        if (previousTmuxPane === undefined) delete process.env.TMUX_PANE;
+        else process.env.TMUX_PANE = previousTmuxPane;
+        if (previousTeamMode === undefined) delete process.env.OMX_TEAM_MODE;
+        else process.env.OMX_TEAM_MODE = previousTeamMode;
+        await rm(cwd, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("preserves exact structural prompt classification through compiled UserPromptSubmit state and Stop", async () => {
+    const cases = [
+      { name: "mixed-indent", prompt: " \t$ralplan plan this", expectedSkill: null },
+      { name: "at-suffix", prompt: "$ralplan@docs", expectedSkill: null },
+      { name: "hash-suffix", prompt: "$ralplan#docs", expectedSkill: null },
+      { name: "equals-suffix", prompt: "$ralplan=docs", expectedSkill: null },
+      { name: "fullwidth-at-suffix", prompt: "$ralplan＠docs", expectedSkill: null },
+      { name: "fullwidth-hash-suffix", prompt: "$ralplan＃docs", expectedSkill: null },
+      { name: "fullwidth-equals-suffix", prompt: "$ralplan＝docs", expectedSkill: null },
+      { name: "directive-use-ralplan", prompt: "use $ralplan plan this", expectedSkill: "ralplan" },
+      { name: "directive-please-use-ralplan", prompt: "please use $ralplan plan this", expectedSkill: "ralplan" },
+      { name: "directive-run-ralplan", prompt: "run $ralplan plan this", expectedSkill: "ralplan" },
+      { name: "directive-list-use-ralplan", prompt: "- use $ralplan plan this", expectedSkill: "ralplan" },
+      { name: "directive-documentation-then-command", prompt: "use $ralplan is the consensus-planning command\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "directive-documentation-then-implicit-command", prompt: "use $ralplan is the consensus-planning command\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "directive-documentation-trailing-prose-then-command", prompt: "use $ralplan is the workflow command for planning\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "directive-documentation-implicit-prose", prompt: "use $ralplan is the workflow command for autopilot mode", expectedSkill: null },
+      { name: "directive-documentation-alias-prose", prompt: "use $ralplan is the consensus-planning command\nAutopilot mode is its alias.", expectedSkill: null },
+      { name: "directive-coordinated-documentation-then-command", prompt: "- use $ralplan and $autopilot are workflow commands\n$ralph execute it", expectedSkill: "ralph" },
+      { name: "directive-documentation-semicolon-directive", prompt: "use $ralplan is the consensus-planning command; use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "directive-two-documentation-blocks", prompt: "use $ralplan is the consensus-planning command\nuse $autopilot is the autonomous workflow command\n$ralph execute it", expectedSkill: "ralph" },
+      { name: "directive-documentation-embedded-token-then-command", prompt: "use $ralplan is the workflow command for $team\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "directive-documentation-task-noun-followup", prompt: "use $ralplan is the workflow command; use $autopilot update the documentation", expectedSkill: "autopilot" },
+      { name: "directive-documentation-implicit-semicolon-followup", prompt: "use $ralplan is the consensus-planning command; use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "directive-documentation-transition-followup", prompt: "use $ralplan is the consensus-planning command; then use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "directive-documentation-explicit-alias", prompt: "use $ralplan is the consensus-planning command; $team is its alias", expectedSkill: null },
+      { name: "directive-documentation-implicit-chain", prompt: "use $ralplan is the consensus-planning command\nAutopilot mode is its alias.\n$ralph execute it", expectedSkill: "ralph" },
+      { name: "directive-documentation-fullwidth-separator", prompt: "use $ralplan，$autopilot are workflow commands", expectedSkill: null },
+      { name: "directive-documentation-compact-slash", prompt: "use $ralplan/$autopilot are workflow commands\n$ralph execute it", expectedSkill: "ralph" },
+      { name: "reference-prompts-title-then-command", prompt: "[docs]: /target \"title\nUse /prompts:architect\"\n$ralph execute it", expectedSkill: "ralph" },
+      { name: "doc-period-implicit", prompt: "use $ralplan is the consensus-planning command. Use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "doc-bare-implicit", prompt: "use $ralplan is the consensus-planning command; autopilot mode.", expectedSkill: "autopilot" },
+      { name: "doc-fullwidth-semicolon", prompt: "use $ralplan is the consensus-planning command； use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "doc-but-followup", prompt: "use $ralplan is the workflow command; but use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "doc-fullwidth-oxford", prompt: "use $ralplan， $autopilot， and $team are workflow commands", expectedSkill: null },
+      { name: "reference-zero-title", prompt: "[docs]: ./target\n(autopilot mode)", expectedSkill: null },
+      { name: "doc-also-alias-explicit", prompt: "use $ralplan is the consensus-planning command; $team is also its alias", expectedSkill: null },
+      { name: "doc-also-alias-implicit", prompt: "use $ralplan is the consensus-planning command\nAutopilot mode is also its alias.", expectedSkill: null },
+      { name: "doc-embedded-mention", prompt: "use $ralplan is the workflow command; $team appears in the documentation.", expectedSkill: null },
+      { name: "chained-negation", prompt: "$ralplan; $autopilot is prohibited", expectedSkill: "ralplan", expectedDeferredSkills: [] },
+      { name: "long-negation", prompt: `$ralplan; $autopilot${" ".repeat(193)}is prohibited`, expectedSkill: "ralplan", expectedDeferredSkills: [] },
+      { name: "doc-arabic-comma", prompt: "use $ralplan، $autopilot are workflow commands", expectedSkill: null },
+      { name: "arabic-negation", prompt: "$ralplan، $autopilot are prohibited", expectedSkill: null },
+      { name: "implicit-arabic-negation", prompt: "Autopilot mode، deep interview are prohibited.", expectedSkill: null },
+      { name: "fullwidth-frame-reset", prompt: "For instance: manual mode is slower。 Use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "doc-abbreviation", prompt: "use $ralplan is the workflow command, e.g. use $autopilot in examples.", expectedSkill: null },
+      { name: "implicit-doc-mention", prompt: "use $ralplan is the workflow command; autopilot mode appears in the documentation.", expectedSkill: null },
+      { name: "implicit-doc-chain", prompt: "use $ralplan is the workflow command; autopilot mode is its alias; $ralph execute it", expectedSkill: "ralph" },
+      { name: "long-command-gap", prompt: `use $ralplan is the workflow command; use${" ".repeat(161)}$autopilot build it`, expectedSkill: "autopilot" },
+      { name: "ideographic-negation", prompt: "$ralplan、 $autopilot are prohibited", expectedSkill: null },
+      { name: "implicit-ideographic-negation", prompt: "Autopilot mode、 deep interview are prohibited.", expectedSkill: null },
+      { name: "doc-exclamation-followup", prompt: "use $ralplan is the consensus-planning command! run $autopilot", expectedSkill: "autopilot" },
+      { name: "doc-fullwidth-question-followup", prompt: "use $ralplan is the consensus-planning command？ run $autopilot", expectedSkill: "autopilot" },
+      { name: "implicit-doc-predecessor", prompt: "Autopilot mode is workflow documentation.\n$ralph execute it", expectedSkill: "ralph" },
+      { name: "confusable-use-verb", prompt: "uſe $ralplan plan it", expectedSkill: null },
+      { name: "confusable-please-prefix", prompt: "pleaſe use $ralplan plan it", expectedSkill: null },
+      { name: "confusable-prompts-token-then-command", prompt: "/promptſ:architect; use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "reserved-em-dash-boundary", prompt: "/prompts:architect— use autopilot mode", expectedSkill: null },
+      { name: "reserved-fullwidth-comma-boundary", prompt: "/prompts:architect， use autopilot mode", expectedSkill: null },
+      { name: "confusable-implicit-verb", prompt: "Do not use deep interview but uſe autopilot mode.", expectedSkill: null },
+      { name: "frame-fullwidth-colon", prompt: "For instance： use autopilot mode.", expectedSkill: null },
+      { name: "frame-fullwidth-comma", prompt: "For instance， use autopilot mode.", expectedSkill: null },
+      { name: "frame-arabic-comma", prompt: "For instance، use autopilot mode.", expectedSkill: null },
+      { name: "frame-ideo-comma", prompt: "For instance、 use autopilot mode.", expectedSkill: null },
+      { name: "doc-explicit-documented", prompt: "use $ralplan is the workflow command; $autopilot is documented in the guide.", expectedSkill: null },
+      { name: "doc-explicit-described", prompt: "$autopilot is described in the manual.", expectedSkill: null },
+      { name: "doc-comma-followup", prompt: "use $ralplan is the workflow command, but use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "doc-fw-comma-followup", prompt: "use $ralplan is the workflow command， but use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "doc-arabic-followup", prompt: "use $ralplan is the workflow command، but use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "doc-ideo-followup", prompt: "use $ralplan is the workflow command、 but use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "neg-arabic-followup", prompt: "Do not run $ralplan، use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "neg-ideo-followup", prompt: "Do not run $ralplan、 use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "implicit-doc-prefix-next", prompt: "The docs mention autopilot mode.\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "implicit-doc-prefix-same-line", prompt: "The docs mention autopilot mode; use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "implicit-doc-subject-same-line", prompt: "Autopilot mode is workflow documentation; use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "compact-explicit-negation", prompt: "$ralplan,$autopilot are prohibited", expectedSkill: null },
+      { name: "compact-implicit-negation", prompt: "Autopilot mode،deep interview are prohibited.", expectedSkill: null },
+      { name: "doc-clause-local-prefix", prompt: "$ralplan; $autopilot is documented in the guide.", expectedSkill: "ralplan" },
+      { name: "doc-chain-described", prompt: "use $ralplan is the workflow command; autopilot mode is documented in the guide; $team execute it", expectedSkill: "team", expectedStopBlock: false, insideTmux: true },
+      { name: "doc-chain-workflow", prompt: "use $ralplan is the workflow command; autopilot mode is workflow documentation; use $ralph execute it", expectedSkill: "ralph" },
+      { name: "ref-inline-explicit", prompt: "[docs]: $ralplan\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "ref-inline-prompts", prompt: "[docs]: /prompts:architect\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "list-fullwidth-explicit-doc", prompt: "- $ralplan： consensus-planning workflow", expectedSkill: null },
+      { name: "list-fullwidth-implicit-doc", prompt: "- autopilot mode： autonomous workflow command", expectedSkill: null },
+      { name: "possessive-straight", prompt: "$ralplan's workflow is documented", expectedSkill: null },
+      { name: "possessive-curly", prompt: "$ralplan’s workflow is documented", expectedSkill: null },
+      { name: "possessive-fullwidth", prompt: "$ralplan＇s workflow is documented", expectedSkill: null },
+      { name: "possessive-prompts", prompt: "/prompts:architect's syntax is documented", expectedSkill: null },
+      { name: "malformed-prefix-kata", prompt: "$・autopilot mode", expectedSkill: null },
+      { name: "malformed-prefix-half", prompt: "$･autopilot mode", expectedSkill: null },
+      { name: "malformed-prefix-arabic", prompt: "$٪autopilot mode", expectedSkill: null },
+      { name: "malformed-prefix-division", prompt: "$∕autopilot mode", expectedSkill: null },
+      { name: "doc-but-directive", prompt: "use $autopilot is documented but use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "list-directive-fw-colon", prompt: "- use $ralplan： consensus-planning workflow", expectedSkill: null },
+      { name: "doc-arabic-question", prompt: "use $ralplan is the workflow command؟ run $autopilot", expectedSkill: "autopilot" },
+      { name: "arabic-semicolon-negation", prompt: "$ralplan؛ $autopilot is prohibited", expectedSkill: "ralplan", expectedDeferredSkills: [] },
+      { name: "confusable-postposed-transition", prompt: "$ralplan is prohibited but uſe autopilot mode.", expectedSkill: null },
+      { name: "mixed-negation", prompt: "Autopilot mode and $ralplan are prohibited.", expectedSkill: null },
+      { name: "both-mixed-negation", prompt: "Both autopilot mode and $ralplan are prohibited.", expectedSkill: null },
+      { name: "mixed-documentation", prompt: "use $ralplan and autopilot mode are workflow commands", expectedSkill: null },
+      { name: "prose-doc-no-reopen", prompt: "$ralplan is prohibited because docs use $autopilot.", expectedSkill: null },
+      { name: "neg-fw-dot-reopen", prompt: "Do not run $ralplan． use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "neg-greek-q-reopen", prompt: "Do not run $ralplan; use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "unicode-attached-contrast", prompt: "Do not use deep interview яbut use autopilot mode.", expectedSkill: null },
+      { name: "prefix-list-followup", prompt: "Do not run $ralplan, $autopilot; use $team execute it", expectedSkill: "team", expectedStopBlock: false, insideTmux: true },
+      { name: "mixed-postposed-chain", prompt: "$ralplan, autopilot mode, $team are prohibited.", expectedSkill: null },
+      { name: "implicit-first-doc-chain", prompt: "Autopilot mode and $ralplan are workflow commands; use $team execute it", expectedSkill: "team", expectedStopBlock: false, insideTmux: true },
+      { name: "both-mixed-doc-followup", prompt: "Both autopilot mode and $ralplan are workflow commands; use $team execute it", expectedSkill: "team", expectedStopBlock: false, insideTmux: true },
+      { name: "doc-semicolon-preserves-earlier", prompt: "Use autopilot mode; use $ralplan is the workflow command.", expectedSkill: "autopilot" },
+      { name: "doc-independent-comma", prompt: "Use autopilot mode, and $ralplan is documented in the guide.", expectedSkill: "autopilot" },
+      { name: "reference-unclosed-quote-destination", prompt: "[docs]: \"target\n$autopilot build it", expectedSkill: null },
+      { name: "reference-unclosed-inline-destination", prompt: "[docs]: `target\n$autopilot build it", expectedSkill: null },
+      { name: "mixed-prefix-negation-implicit", prompt: "Do not run $ralplan and use autopilot mode.", expectedSkill: null },
+      { name: "repeated-postposed-followup", prompt: "$team is prohibited and is forbidden; use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "doc-preserves-earlier", prompt: "Use autopilot mode; \"note\"; use $ralplan is the workflow command.", expectedSkill: "autopilot" },
+      { name: "doc-colon-followup", prompt: "use $ralplan is the workflow command: use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "table-followup", prompt: "Mode | Meaning\n--- | ---\nmanual | documentation\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "neg-advance-reopen", prompt: "Do not run $ralplan but advance to $ultragoal", expectedSkill: "ultragoal", expectedStopBlock: false },
+      { name: "neg-jump-reopen", prompt: "Do not run $ralplan but jump straight to $ultragoal", expectedSkill: "ultragoal", expectedStopBlock: false },
+      { name: "reference-plain-title", prompt: "[docs]: /target \"title\nplain text\"\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "reference-plain-destination", prompt: "[docs]: ./target\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "directive-use-the", prompt: "Do not run $ralplan; use the $autopilot build it", expectedSkill: "autopilot" },
+      { name: "directive-continue-after-quote", prompt: "\"quoted\"\ncontinue with $ralplan", expectedSkill: "ralplan" },
+      { name: "doc-advance-followup", prompt: "use $ralplan is the workflow command; advance to $ultragoal", expectedSkill: "ultragoal", expectedStopBlock: false },
+      { name: "directive-run-analyze", prompt: "run $analyze", expectedSkill: "analyze", expectedStopBlock: false },
+      { name: "directive-run-code-review", prompt: "run $code-review", expectedSkill: "code-review", expectedStopBlock: false },
+      { name: "directive-please-use-code-review", prompt: "please use $code-review", expectedSkill: "code-review", expectedStopBlock: false },
+      { name: "directive-please-run-ralplan", prompt: "please run $ralplan plan this", expectedSkill: "ralplan" },
+      { name: "directive-start-ralplan", prompt: "start $ralplan plan this", expectedSkill: "ralplan" },
+      { name: "directive-enable-deep-interview", prompt: "enable $deep-interview", expectedSkill: "deep-interview", expectedStopBlock: false },
+      { name: "directive-launch-autopilot", prompt: "launch $autopilot", expectedSkill: "autopilot" },
+      { name: "directive-invoke-ralph", prompt: "invoke $ralph", expectedSkill: "ralph" },
+      { name: "directive-activate-ultrawork", prompt: "activate $ultrawork", expectedSkill: "ultrawork" },
+      { name: "directive-resume-ralplan", prompt: "resume $ralplan plan this", expectedSkill: "ralplan" },
+      { name: "directive-continue-code-review", prompt: "continue $code-review", expectedSkill: "code-review", expectedStopBlock: false },
+      { name: "directive-documentation", prompt: "use $ralplan is the consensus-planning command", expectedSkill: null },
+      { name: "g1a-ordered-multi-skill", prompt: "$ralplan, $autopilot; $team", expectedSkill: "ralplan", expectedDeferredSkills: ["autopilot", "team"], expectedActiveSkills: ["ralplan"], expectedActiveDetailSkills: ["ralplan"], insideTmux: true },
+      { name: "g1c-duplicate-alias", prompt: "$autopilot $oh-my-codex:autopilot build it", expectedSkill: "autopilot", expectedDeferredSkills: [], expectedActiveSkills: ["autopilot"] },
+      { name: "b3-longer-valid-fence", prompt: "```text\n$ralplan plan it\n````\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "b4-shorter-invalid-fence", prompt: "````text\n$ralplan plan it\n```\n$autopilot build it", expectedSkill: null },
+      { name: "b5-different-marker-invalid-fence", prompt: "```text\n$ralplan plan it\n~~~\n$autopilot build it", expectedSkill: null },
+      { name: "directive-non-leading-prose", prompt: "The docs say use $ralplan plan this", expectedSkill: null },
+      { name: "nested-bounded-child-unbounded-parent", prompt: "\"`x`\n$ralplan plan it", expectedSkill: null },
+      { name: "first-contiguous-block-terminal", prompt: "$ralplan plan it\n\"x\"\n$autopilot build it", expectedSkill: "ralplan", expectedDeferredSkills: [] },
+      { name: "leading-reserved-dominance", prompt: "/prompts:architect\n\"x\"\n$ralplan plan it", expectedSkill: null },
+      { name: "list-fence-root-opener", prompt: "- ```\n  sample\n```\n$ralplan plan it", expectedSkill: null },
+      { name: "list-fence-relative-closer", prompt: "- ```\n  sample\n    ```\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "reference-multiline-title-explicit", prompt: "[docs]: /target \"title\nuse /prompts:architect\n$ralplan plan it\"", expectedSkill: null },
+      { name: "reference-multiline-title-implicit", prompt: "[docs]: /target \"title\nuse autopilot mode\"", expectedSkill: null },
+      { name: "reference-next-line-title", prompt: "[docs]: ./target\n  (autopilot mode)", expectedSkill: null },
+      { name: "reference-next-line-destination-title", prompt: "[docs]:\n  ./target\n  (autopilot mode)", expectedSkill: null },
+      { name: "kelvin-case-fold-suffix", prompt: "$ultraworK execute", expectedSkill: null },
+      { name: "katakana-middle-dot-suffix", prompt: "$ralplan・suffix plan it", expectedSkill: null },
+      { name: "halfwidth-middle-dot-suffix", prompt: "$ralplan･suffix plan it", expectedSkill: null },
+      { name: "arabic-percent-suffix", prompt: "$ralplan٪docs", expectedSkill: null },
+      { name: "division-slash-suffix", prompt: "$ralplan∕config", expectedSkill: null },
+      { name: "implicit-negative", prompt: "Do not use autopilot mode.", expectedSkill: null },
+      { name: "implicit-negative-list", prompt: "Do not use deep interview, autopilot mode.", expectedSkill: null },
+      { name: "implicit-negative-nor", prompt: "Do not use deep interview, nor autopilot mode.", expectedSkill: null },
+      { name: "implicit-negative-avoid", prompt: "Avoid autopilot mode.", expectedSkill: null },
+      { name: "implicit-negative-suffix", prompt: "Autopilot mode is not allowed.", expectedSkill: null },
+      { name: "implicit-negative-contraction", prompt: "Autopilot mode isn't allowed.", expectedSkill: null },
+      { name: "implicit-negative-prohibited", prompt: "Autopilot mode is prohibited.", expectedSkill: null },
+      { name: "implicit-no-prefix", prompt: "No autopilot mode.", expectedSkill: null },
+      { name: "implicit-quoted-doc", prompt: "The docs call this \"autopilot mode\".", expectedSkill: null },
+      { name: "implicit-fenced", prompt: "```\nautopilot mode\n```", expectedSkill: null },
+      { name: "implicit-list-fenced", prompt: "- ```\n  autopilot mode\n  ```", expectedSkill: null },
+      { name: "implicit-sibling-list-fence", prompt: "- ```\n  first example\n- ```\n  autopilot mode\n  ```", expectedSkill: null },
+      { name: "implicit-prompts-protocol", prompt: "use /prompts:architect autopilot mode", expectedSkill: null },
+      { name: "implicit-quoted-prompts-positive", prompt: "Ignore the quoted \"/prompts:architect\" and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-doc-verb", prompt: "This documents autopilot mode.", expectedSkill: null },
+      { name: "implicit-guide-frame", prompt: "The guide says do not use deep interview but instead use autopilot mode.", expectedSkill: null },
+      { name: "implicit-markdown-link", prompt: "[autopilot mode](./docs.md)", expectedSkill: null },
+      { name: "implicit-markdown-heading", prompt: "## Autopilot mode", expectedSkill: null },
+      { name: "implicit-markdown-table", prompt: "| autopilot mode | workflow command |", expectedSkill: null },
+      { name: "implicit-dash-documentation", prompt: "Autopilot mode — autonomous workflow command", expectedSkill: null },
+      { name: "implicit-unicode-adjacency", prompt: "문서autopilot mode한글", expectedSkill: null },
+      { name: "implicit-korean-negative", prompt: "autopilot mode는 사용하지 마세요", expectedSkill: null },
+      { name: "implicit-postposed-coordinated-negative", prompt: "Autopilot mode and deep interview are prohibited.", expectedSkill: null },
+      { name: "implicit-postposed-modal-negative", prompt: "Autopilot mode should be avoided.", expectedSkill: null },
+      { name: "implicit-example-frame", prompt: "Example: do not use deep interview but instead use autopilot mode.", expectedSkill: null },
+      { name: "implicit-fullwidth-single-quote", prompt: "＇autopilot mode＇", expectedSkill: null },
+      { name: "escaped-plugin-autopilot", prompt: "\\$oh-my-codex:autopilot mode", expectedSkill: null },
+      { name: "implicit-comma-coordinated-negative", prompt: "Autopilot mode, deep interview, and team are prohibited.", expectedSkill: null },
+      { name: "implicit-for-example-frame", prompt: "For example, do not use deep interview but instead use autopilot mode.", expectedSkill: null },
+      { name: "implicit-docs-comma-frame", prompt: "According to the docs, do not use deep interview but instead use autopilot mode.", expectedSkill: null },
+      { name: "implicit-curly-dont-negative", prompt: "Don’t use autopilot mode.", expectedSkill: null },
+      { name: "implicit-fullwidth-dont-negative", prompt: "Don＇t use autopilot mode.", expectedSkill: null },
+      { name: "implicit-curly-isnt-negative", prompt: "Autopilot mode isn’t allowed.", expectedSkill: null },
+      { name: "implicit-copular-infinitive-negative", prompt: "Autopilot mode is to be avoided.", expectedSkill: null },
+      { name: "implicit-past-copular-infinitive-negative", prompt: "Autopilot mode was to be disabled.", expectedSkill: null },
+      { name: "implicit-article-coordinated-negative", prompt: "Autopilot mode and the deep interview workflow are prohibited.", expectedSkill: null },
+      { name: "implicit-as-example-frame", prompt: "As an example, do not use deep interview but instead use autopilot mode.", expectedSkill: null },
+      { name: "implicit-for-instance-frame", prompt: "For instance, do not use deep interview but instead use autopilot mode.", expectedSkill: null },
+      { name: "implicit-markdown-reference-link", prompt: "[autopilot mode][docs]", expectedSkill: null },
+      { name: "implicit-plural-coordinated-negative", prompt: "Autopilot mode and deep interview workflows are prohibited.", expectedSkill: null },
+      { name: "implicit-as-example-governing-frame", prompt: "As an example, ignore the docs and use autopilot mode.", expectedSkill: null },
+      { name: "implicit-for-instance-governing-frame", prompt: "For instance, ignore the docs and use autopilot mode.", expectedSkill: null },
+      { name: "implicit-markdown-definition", prompt: "[autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-markdown-shortcut-label", prompt: "[autopilot mode]", expectedSkill: null },
+      { name: "implicit-markdown-setext", prompt: "Autopilot mode\n===", expectedSkill: null },
+      { name: "explicit-markdown-pipe-table", prompt: "$ralplan | workflow\n--- | ---", expectedSkill: null },
+      { name: "implicit-markdown-table-body", prompt: "Mode | Meaning\n--- | ---\nautopilot mode | autonomous workflow command", expectedSkill: null },
+      { name: "implicit-as-well-as-negative", prompt: "Autopilot mode as well as deep interview workflows are prohibited.", expectedSkill: null },
+      { name: "implicit-along-with-negative", prompt: "Autopilot mode along with deep interview workflows are prohibited.", expectedSkill: null },
+      { name: "implicit-together-with-negative", prompt: "Autopilot mode together with deep interview workflows are prohibited.", expectedSkill: null },
+      { name: "implicit-ampersand-negative", prompt: "Autopilot mode & deep interview workflows are prohibited.", expectedSkill: null },
+      { name: "implicit-example-colon-frame", prompt: "As an example: ignore the docs and use autopilot mode.", expectedSkill: null },
+      { name: "implicit-instance-em-dash-frame", prompt: "For instance — ignore the docs and use autopilot mode.", expectedSkill: null },
+      { name: "implicit-example-hyphen-frame", prompt: "For example - ignore the docs and use autopilot mode.", expectedSkill: null },
+      { name: "implicit-instance-colon-frame-no-doc-word", prompt: "For instance: use autopilot mode.", expectedSkill: null },
+      { name: "implicit-instance-em-dash-frame-no-doc-word", prompt: "For instance — use autopilot mode.", expectedSkill: null },
+      { name: "implicit-markdown-later-table-body", prompt: "Mode | Meaning\n--- | ---\nmanual | docs\nautopilot mode | autonomous workflow command", expectedSkill: null },
+      { name: "implicit-embedded-shortcut-definition", prompt: "See [autopilot mode] for details.\n\n[autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-parenthetical-as-well-negative", prompt: "Autopilot mode, as well as deep interview workflows, are prohibited.", expectedSkill: null },
+      { name: "implicit-parenthetical-along-negative", prompt: "Autopilot mode, along with deep interview workflows, are prohibited.", expectedSkill: null },
+      { name: "implicit-parenthetical-together-negative", prompt: "Autopilot mode, together with deep interview workflows, are prohibited.", expectedSkill: null },
+      { name: "implicit-normalized-shortcut-definition", prompt: "See [autopilot   mode] for details.\n\n[autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-ignore-exclusion", prompt: "Ignore autopilot mode.", expectedSkill: null },
+      { name: "implicit-skip-exclusion", prompt: "Skip autopilot mode.", expectedSkill: null },
+      { name: "implicit-exclude-exclusion", prompt: "Exclude autopilot mode.", expectedSkill: null },
+      { name: "explicit-postposed-prohibited", prompt: "$ralplan is prohibited.", expectedSkill: null },
+      { name: "explicit-postposed-modal-negative", prompt: "$ralplan should not be run.", expectedSkill: null },
+      { name: "explicit-postposed-coordinated-negative", prompt: "$ralplan and $autopilot are prohibited.", expectedSkill: null },
+      { name: "explicit-postposed-article-coordination", prompt: "$ralplan and the $autopilot workflow are prohibited.", expectedSkill: null },
+      { name: "explicit-postposed-implicit-coordination", prompt: "$ralplan and autopilot mode are prohibited.", expectedSkill: null },
+      { name: "implicit-blockquote-reference-definition", prompt: "See [autopilot mode] for details.\n\n> [autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-list-reference-definition", prompt: "See [autopilot mode] for details.\n\n- [autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-indented-blockquote-reference-definition", prompt: "See [autopilot mode] for details.\n\n>   [autopilot mode]: ./docs", expectedSkill: null },
+      { name: "explicit-list-contained-indented-code", prompt: "-     $ralplan", expectedSkill: null },
+      { name: "implicit-list-contained-indented-code", prompt: "1.     autopilot mode", expectedSkill: null },
+      { name: "implicit-four-space-blockquote-definition", prompt: "See [autopilot mode] for details.\n\n>    [autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-multiline-reference-definition", prompt: "See [autopilot mode] for details.\n\n[autopilot mode]:\n  ./docs", expectedSkill: null },
+      { name: "explicit-list-tab-code-boundary", prompt: "-   \t$ralplan", expectedSkill: null },
+      { name: "implicit-nested-list-contained-code", prompt: "- -     autopilot mode", expectedSkill: null },
+      { name: "implicit-list-nested-blockquote", prompt: "- > autopilot mode", expectedSkill: null },
+      { name: "implicit-deep-nested-list-contained-code", prompt: "- - - - - - - - -     autopilot mode", expectedSkill: null },
+      { name: "implicit-ordered-list-nested-blockquote", prompt: "1234. > autopilot mode", expectedSkill: null },
+      { name: "explicit-nested-list-positive", prompt: "- - $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-four-digit-ordered-list-positive", prompt: "1234. $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-list-fence-then-positive", prompt: "- ```\n  $ralplan\n  ```\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "explicit-nested-list-doc-then-positive", prompt: "- - $ralplan is the consensus-planning command\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "explicit-after-closed-blockquote", prompt: "> quoted context\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-after-closed-fence", prompt: "```text\nquoted context\n```\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-after-indented-code", prompt: "    quoted context\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-after-closed-quote", prompt: "\"quoted context\"\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-after-prompts-context", prompt: "Use /prompts:architect.\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-after-bare-prompts-precedence", prompt: "Prose\n/prompts:architect\n$ralplan plan this", expectedSkill: null },
+      { name: "explicit-after-unclosed-fence", prompt: "```text\nquoted context\n$ralplan plan it", expectedSkill: null },
+      { name: "explicit-after-mismatched-fence", prompt: "```text\nquoted context\n~~~\n$ralplan plan it", expectedSkill: null },
+      { name: "explicit-after-unclosed-quote", prompt: "\"quoted context\n$ralplan plan it", expectedSkill: null },
+      { name: "explicit-after-blockquote-prose", prompt: "> quoted context\nThe docs mention $ralplan only", expectedSkill: null },
+      { name: "explicit-after-quote-negative", prompt: "\"quoted context\"\nDo not run $ralplan", expectedSkill: null },
+      { name: "explicit-stale-predecessor-prose", prompt: "> quoted context\nProse\n$ralplan implement this", expectedSkill: null },
+      { name: "explicit-stale-predecessor-directive-clause", prompt: "> quoted context\nProse\nUse $ralplan plan this", expectedSkill: null },
+      { name: "explicit-stale-predecessor-prompts", prompt: "> quoted context\n/prompts:architect\n$ralplan plan this", expectedSkill: null },
+      { name: "explicit-stale-predecessor-second-block", prompt: "> quoted context\n$ralplan plan it\nLater discussion.\n$autopilot build it", expectedSkill: "ralplan", expectedDeferredSkills: [] },
+      { name: "explicit-negative-before-unclosed-quote", prompt: "Do not run $ralplan.\n\"unclosed context\n$autopilot build it", expectedSkill: null },
+      { name: "explicit-reference-before-unclosed-quote", prompt: "[$ralplan]: ./docs\n\"unclosed context\n$autopilot build it", expectedSkill: null },
+      { name: "explicit-prompts-inside-unclosed-quote", prompt: "\"Use /prompts:architect\n$ralplan plan it", expectedSkill: null },
+      { name: "explicit-malformed-prompts-suffix", prompt: "/prompts:architect한글\n$ralplan plan it", expectedSkill: null },
+      { name: "explicit-nested-list-prompts-positive", prompt: "- Use /prompts:architect.\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-nested-list-fence-positive", prompt: "- - ```\n    quoted context\n    ```\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "implicit-reference-destination", prompt: "[docs]:\nautopilot", expectedSkill: null },
+      { name: "explicit-middle-dot-suffix", prompt: "$ralplan·suffix plan it", expectedSkill: null },
+      { name: "explicit-percent-suffix", prompt: "$ralplan%docs", expectedSkill: null },
+      { name: "explicit-fullwidth-percent-suffix", prompt: "$ralplan％docs", expectedSkill: null },
+      { name: "explicit-postposed-also-negative", prompt: "$ralplan is also prohibited.", expectedSkill: null },
+      { name: "implicit-postposed-still-negative", prompt: "Autopilot mode is still prohibited.", expectedSkill: null },
+      { name: "implicit-commonmark-case-fold", prompt: "See [ẞ autopilot mode] for details.\n\n[SS autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-commonmark-escaped-bracket", prompt: "See [foo\\] autopilot mode] for details.\n\n[foo\\] autopilot mode]: ./docs", expectedSkill: null },
+      { name: "implicit-version-decimal-frame", prompt: "For instance: in version 1.2, use autopilot mode.", expectedSkill: null },
+      { name: "implicit-abbreviation-frame", prompt: "For instance: e.g. use autopilot mode.", expectedSkill: null },
+      { name: "implicit-slash-documentation", prompt: "Autopilot mode / deep interview are workflow commands.", expectedSkill: null },
+      { name: "implicit-low-quote", prompt: "„autopilot mode“", expectedSkill: null },
+      { name: "implicit-list-documentation", prompt: "- autopilot mode is a workflow command", expectedSkill: null },
+      { name: "implicit-doc-prefix", prompt: "The reference describes autopilot mode.", expectedSkill: null },
+      { name: "implicit-doc-suffix", prompt: "autopilot mode is workflow documentation.", expectedSkill: null },
+      { name: "implicit-inline-code", prompt: "`autopilot mode`", expectedSkill: null },
+      { name: "implicit-blockquote", prompt: "> autopilot mode", expectedSkill: null },
+      { name: "documentation-suffix", prompt: "$ralplan.md is the workflow documentation file", expectedSkill: null },
+      { name: "path-suffix", prompt: "$autopilot/config", expectedSkill: null },
+      { name: "unicode-suffix", prompt: "$ralplan한글", expectedSkill: null },
+      { name: "zero-width-suffix", prompt: "$ralplan\u200B.md", expectedSkill: null },
+      { name: "compatibility-path-suffix", prompt: "$ralplan／config", expectedSkill: null },
+      { name: "nul-suffix", prompt: "$ralplan\u0000md", expectedSkill: null },
+      { name: "bidi-control-suffix", prompt: "$ralplan\u202Emd", expectedSkill: null },
+      { name: "bom-suffix", prompt: "$ralplan\uFEFF.md", expectedSkill: null },
+      { name: "fullwidth-dot-suffix", prompt: "$ralplan．md", expectedSkill: null },
+      { name: "direct-prompts-reservation", prompt: "/prompts:architect $ralplan plan this", expectedSkill: null },
+      { name: "list-documentation", prompt: "- $ralplan is the consensus-planning command", expectedSkill: null },
+      { name: "colon-list-documentation", prompt: "- $ralplan: consensus-planning workflow", expectedSkill: null },
+      { name: "dash-list-documentation", prompt: "- $ralplan — consensus-planning command", expectedSkill: null },
+      { name: "plural-list-documentation", prompt: "- $ralplan, $autopilot are workflow commands", expectedSkill: null },
+      { name: "conjunction-list-documentation", prompt: "- $ralplan and $autopilot are workflow commands", expectedSkill: null },
+      { name: "oxford-list-documentation", prompt: "- $ralplan, $autopilot, and $team are workflow commands", expectedSkill: null },
+      { name: "slash-list-documentation", prompt: "- $ralplan / $autopilot are workflow commands", expectedSkill: null },
+      { name: "compact-slash-list-documentation", prompt: "- $ralplan/$autopilot are workflow commands", expectedSkill: null },
+      { name: "negative-then-positive", prompt: "Do not run $ralplan; instead $autopilot build issue #3140", expectedSkill: "autopilot" },
+      { name: "comma-negative-then-positive", prompt: "Do not run $ralplan, instead $autopilot build it", expectedSkill: "autopilot" },
+      { name: "use-negative-then-positive", prompt: "Do not run $ralplan; use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "but-use-negative-then-positive", prompt: "Do not run $ralplan but use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "but-instead-use-negative-then-positive", prompt: "Do not run $ralplan but instead use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "em-dash-instead-use-positive", prompt: "Do not run $ralplan — instead use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "implicit-positive-contrast", prompt: "Do not use deep interview, but use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-but-instead-positive", prompt: "Do not use deep interview but instead use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-list-verb-positive", prompt: "List files and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-dont-stop-positive", prompt: "No, don't stop.", expectedSkill: "ralph" },
+      { name: "implicit-doc-then-positive", prompt: "Autopilot mode is workflow documentation.\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "prompts-then-positive", prompt: "Use /prompts:architect.\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "mixed-negative-explicit-positive-implicit", prompt: "Do not run $ralplan but instead use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "mixed-quoted-explicit-positive-implicit", prompt: "Ignore \"$ralplan\" and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "escaped-prompts-positive-implicit", prompt: "Ignore \\/prompts:architect and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "url-prompts-positive-implicit", prompt: "See https://example.com/prompts:architect and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-positive-modal-used", prompt: "Autopilot mode should be used.", expectedSkill: "autopilot" },
+      { name: "implicit-positive-modal-enabled", prompt: "Autopilot mode must be enabled.", expectedSkill: "autopilot" },
+      { name: "implicit-positive-modal-run", prompt: "Autopilot mode can be run.", expectedSkill: "autopilot" },
+      { name: "implicit-fullwidth-possessive-positive", prompt: "User＇s request: use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "markdown-prompts-link-positive", prompt: "See [/prompts:architect](./docs.md) and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-subordinate-positive", prompt: "Use autopilot mode, while deep interview is prohibited.", expectedSkill: "autopilot" },
+      { name: "docs-sentence-then-positive", prompt: "Read the docs. Use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "docs-semicolon-then-positive", prompt: "The docs are stale; use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "docs-comma-directive-positive", prompt: "Ignore the docs, use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "escaped-prompts-explicit-followup", prompt: "Ignore \\/prompts:architect\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "url-prompts-explicit-followup", prompt: "See https://example.com/prompts:architect\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "link-prompts-explicit-followup", prompt: "See [/prompts:architect](./docs.md)\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "linked-explicit-implicit-positive", prompt: "See [$ralplan](./docs.md) and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "url-explicit-implicit-positive", prompt: "See https://example.com/$ralplan and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-coordinated-clause-positive", prompt: "Use autopilot mode, and deep interview is prohibited.", expectedSkill: "autopilot" },
+      { name: "docs-and-directive-positive", prompt: "Ignore the docs and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "escaped-prompts-same-line-explicit", prompt: "Ignore \\/prompts:architect; use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "url-prompts-same-line-explicit", prompt: "See https://example.com/prompts:architect; use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "link-prompts-same-line-explicit", prompt: "See [/prompts:architect](./docs.md); use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "reference-prompts-same-line-explicit", prompt: "See [/prompts:architect][docs]; use $ralplan plan it", expectedSkill: "ralplan" },
+      { name: "heading-prompts-explicit-followup", prompt: "## /prompts:architect\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "table-prompts-explicit-followup", prompt: "| /prompts:architect |\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "heading-explicit-implicit-positive", prompt: "## $ralplan\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "table-explicit-implicit-positive", prompt: "| $ralplan |\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "reference-explicit-implicit-positive", prompt: "See [$ralplan][docs] and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "windows-path-explicit-implicit-positive", prompt: "See C:\\docs\\$ralplan and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-fullwidth-plural-possessive-positive", prompt: "Users＇ request: use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "implicit-modal-coordinated-clause-positive", prompt: "Use autopilot mode, and deep interview should be avoided.", expectedSkill: "autopilot" },
+      { name: "docs-but-directive-positive", prompt: "Ignore the docs but use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "prompts-markdown-definition-explicit-followup", prompt: "[/prompts:architect]: ./docs\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "prompts-markdown-shortcut-explicit-followup", prompt: "[/prompts:architect]\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "explicit-markdown-definition-implicit-positive", prompt: "[$ralplan]: ./docs\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "explicit-markdown-shortcut-implicit-positive", prompt: "[$ralplan]\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "explicit-markdown-setext-implicit-positive", prompt: "$ralplan\n===\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "explicit-markdown-pipe-table-implicit-positive", prompt: "$ralplan | workflow\n--- | ---\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "heading-explicit-later-explicit", prompt: "## $ralplan\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "linked-explicit-later-explicit", prompt: "See [$ralplan](./docs.md); use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "windows-path-explicit-later-explicit", prompt: "See C:\\docs\\$ralplan; use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "table-body-explicit-later-explicit", prompt: "Mode | Meaning\n--- | ---\n$ralplan | planning\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "embedded-shortcut-explicit-implicit-positive", prompt: "See [$ralplan] for details.\n\n[$ralplan]: ./docs\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "quoted-explicit-later-explicit", prompt: "Ignore \"$ralplan\" and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "inline-code-explicit-later-explicit", prompt: "Ignore `$ralplan` and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "normalized-shortcut-explicit-implicit-positive", prompt: "See [$ralplan   ] for details.\n\n[$ralplan]: ./docs\nUse autopilot mode.", expectedSkill: "autopilot" },
+      { name: "intro-frame-sentence-reset-positive", prompt: "For instance: manual mode is slower. Use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "inline-link-overlap-later-explicit", prompt: "See [`$ralplan`](./docs.md) and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "implicit-exclusion-later-positive", prompt: "Ignore deep interview and use autopilot mode.", expectedSkill: "autopilot" },
+      { name: "link-destination-later-explicit", prompt: "See [docs](https://example.com/$ralplan) and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "link-title-later-explicit", prompt: "See [docs](./docs.md \"$ralplan reference\") and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "nested-destination-later-explicit", prompt: "See [docs](https://example.com/(v1)/$ralplan) and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "nested-link-text-later-explicit", prompt: "See [$ralplan](https://example.com/(v1)) and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "quoted-title-parenthesis-later-explicit", prompt: "See [docs](./docs.md \"$ralplan (reference\") and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "blockquote-code-definition-boundary", prompt: "See [autopilot mode] for details.\n\n>     [autopilot mode]: ./docs", expectedSkill: "autopilot" },
+      { name: "explicit-list-tab-content-boundary", prompt: "-\t $ralplan", expectedSkill: "ralplan" },
+      { name: "postposed-negative-but-later-explicit", prompt: "$ralplan is prohibited but use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "postposed-negative-and-later-explicit", prompt: "$ralplan is prohibited and use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "inline-negative-then-positive", prompt: "Quoted inline-code `$ralplan`; use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "negative-line-then-positive", prompt: "Without $ralplan.\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "quoted-then-positive", prompt: "Quoted example: \"$ralplan plan it\".\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "inert-prompts-then-positive", prompt: "\"Use /prompts:architect\"\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "list-doc-then-positive", prompt: "- $ralplan is the consensus-planning command\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "prompt-doc-then-positive", prompt: "- /prompts:architect is the prompt command documentation\n$ralplan plan it", expectedSkill: "ralplan" },
+      { name: "conjunction-list-doc-then-positive", prompt: "- $ralplan and $autopilot are workflow commands\n$autopilot execute it", expectedSkill: "autopilot" },
+      { name: "oxford-list-doc-then-positive", prompt: "- $ralplan, $autopilot, and $team are workflow commands\n$autopilot execute it", expectedSkill: "autopilot" },
+      { name: "slash-list-doc-then-positive", prompt: "- $ralplan / $autopilot are workflow commands\n$autopilot execute it", expectedSkill: "autopilot" },
+      { name: "compact-slash-list-doc-then-positive", prompt: "- $ralplan/$autopilot are workflow commands\n$autopilot execute it", expectedSkill: "autopilot" },
+      { name: "escaped-quote-range", prompt: "\"$ralplan \\\"; $autopilot build it", expectedSkill: null },
+      { name: "blockquote-fence-closer", prompt: "```\n$ralplan\n> ```\n$autopilot build it", expectedSkill: null },
+      { name: "double-negative-control", prompt: "Do not run $ralplan; do not run $autopilot", expectedSkill: null },
+      { name: "comma-negative-control", prompt: "Do not run $ralplan, $autopilot", expectedSkill: null },
+      { name: "unseparated-control", prompt: "Do not run $ralplan and use $autopilot build it", expectedSkill: null },
+      { name: "even-escape-control", prompt: "\"$ralplan \\\\\"; use $autopilot build it", expectedSkill: "autopilot" },
+      { name: "matching-fence-control", prompt: "> ```\n> $ralplan\n> ```\n$autopilot build it", expectedSkill: "autopilot" },
+      { name: "invalid-fence-closer", prompt: "```\n$ralplan\n``` still code\n$autopilot build it", expectedSkill: null },
+      { name: "documentation-clause-control", prompt: "Do not run $ralplan. We only document $autopilot behavior", expectedSkill: null },
+      {
+        name: "punctuation-multi-workflow",
+        prompt: "$ralplan, $autopilot build issue #3140",
+        expectedSkill: "ralplan",
+        expectedDeferredSkills: ["autopilot"],
+      },
+    ] as const;
+
+    for (const [caseIndex, testCase] of cases.entries()) {
+      const cwd = await mkdtemp(join(tmpdir(), `omx-native-compiled-classification-${caseIndex}-`));
+      const sessionId = `sess-compiled-${caseIndex}`;
+      const env = {
+        ...process.env,
+        OMX_ROOT: "",
+        OMX_STATE_ROOT: "",
+        OMX_SESSION_ID: "",
+        CODEX_SESSION_ID: "",
+        OMX_TEAM_STATE_ROOT: "",
+        OMX_TEAM_WORKER: "",
+        OMX_TEAM_INTERNAL_WORKER: "",
+        OMX_TEAM_LEADER_CWD: "",
+        OMX_TEAM_MODE: "insideTmux" in testCase && testCase.insideTmux ? "enabled" : "",
+        SESSION_ID: "",
+        OMX_QUESTION_RETURN_PANE: "",
+        OMX_LEADER_PANE_ID: "",
+        OMX_TMUX_HUD_OWNER: "",
+        TMUX: "insideTmux" in testCase && testCase.insideTmux ? "/tmp/tmux-pr3140-regression" : "",
+        TMUX_PANE: "insideTmux" in testCase && testCase.insideTmux ? "%3140" : "",
+      };
+      try {
+        const submit = parseSingleJsonStdout(runNativeHookCli({
+          hook_event_name: "UserPromptSubmit",
+          cwd,
+          source: "codex-app",
+          session_id: sessionId,
+          thread_id: `thread-${caseIndex}`,
+          turn_id: `turn-${caseIndex}`,
+          prompt: testCase.prompt,
+        }, { cwd, env }));
+        assert.equal(submit.continue, undefined, testCase.name);
+
+        const sessionDir = join(cwd, ".omx", "state", "sessions", sessionId);
+        const skillStatePath = join(sessionDir, "skill-active-state.json");
+        if (testCase.expectedSkill === null) {
+          assert.equal(existsSync(skillStatePath), false, testCase.name);
+          assert.equal(existsSync(join(sessionDir, "ralplan-state.json")), false, testCase.name);
+          assert.equal(existsSync(join(sessionDir, "autopilot-state.json")), false, testCase.name);
+        } else {
+          assert.equal(existsSync(skillStatePath), true, testCase.name);
+          const skillState = JSON.parse(await readFile(skillStatePath, "utf-8")) as {
+            active?: boolean;
+            skill?: string;
+            deferred_skills?: string[];
+            active_skills?: Array<{ skill?: string }>;
+          };
+          assert.equal(skillState.active, true, testCase.name);
+          assert.equal(skillState.skill, testCase.expectedSkill, testCase.name);
+          if ("expectedDeferredSkills" in testCase) {
+            assert.deepEqual(skillState.deferred_skills ?? [], testCase.expectedDeferredSkills, testCase.name);
+          }
+          if ("expectedActiveSkills" in testCase) {
+            assert.deepEqual(skillState.active_skills?.map((entry) => entry.skill) ?? [], testCase.expectedActiveSkills, testCase.name);
+          }
+          if ("expectedActiveDetailSkills" in testCase) {
+            const activeDetailSkills = (await Promise.all(["ralplan", "autopilot"].map(async (skill) => {
+              const detailPath = join(sessionDir, `${skill}-state.json`);
+              if (!existsSync(detailPath)) return null;
+              const detailState = JSON.parse(await readFile(detailPath, "utf-8")) as { active?: boolean };
+              return detailState.active ? skill : null;
+            }))).filter((skill): skill is string => skill !== null);
+            assert.deepEqual(activeDetailSkills, testCase.expectedActiveDetailSkills, testCase.name);
+          }
+        }
+
+        const stop = parseSingleJsonStdout(runNativeHookCli({
+          hook_event_name: "Stop",
+          cwd,
+          source: "codex-app",
+          session_id: sessionId,
+          thread_id: `thread-${caseIndex}`,
+          turn_id: `stop-${caseIndex}`,
+        }, { cwd, env }));
+        if (testCase.expectedSkill === null) assert.deepEqual(stop, {}, testCase.name);
+        else if ("expectedStopBlock" in testCase && !testCase.expectedStopBlock) {
+          assert.notEqual(stop.decision, "block", testCase.name);
+        } else assert.equal(stop.decision, "block", testCase.name);
+      } finally {
+        await rm(cwd, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("restarts terminal Autopilot through disabled-Team explicit UserPromptSubmit and blocks compiled Stop", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "omx-native-disabled-team-terminal-restart-"));
+    const sessionId = "sess-disabled-team-terminal-restart";
+    const threadId = "thread-disabled-team-terminal-restart";
+    const turnId = "turn-disabled-team-terminal-restart";
+    const sessionDir = join(cwd, ".omx", "state", "sessions", sessionId);
+    const autopilotPath = join(sessionDir, "autopilot-state.json");
+    try {
+      await writeJson(join(cwd, ".omx", "setup-scope.json"), {
+        scope: "project",
+        teamMode: "disabled",
+      });
+      await writeJson(autopilotPath, {
+        mode: "autopilot",
+        active: false,
+        current_phase: "complete",
+        completed_at: "2026-07-12T23:00:00.000Z",
+        session_id: sessionId,
+        thread_id: threadId,
+        turn_id: turnId,
+      });
+      const before = await readFile(autopilotPath);
+
+      const restart = await dispatchCodexNativeHook({
+        hook_event_name: "UserPromptSubmit",
+        cwd,
+        source: "codex-app",
+        session_id: sessionId,
+        thread_id: threadId,
+        turn_id: turnId,
+        prompt: "$team $autopilot retry",
+      }, { cwd });
+      assert.equal(restart.skillState?.skill, "autopilot");
+      assert.equal(restart.skillState?.active, true);
+      assert.equal(existsSync(join(cwd, ".omx", "state", "team-state.json")), false);
+
+      const restartedState = JSON.parse(await readFile(autopilotPath, "utf-8")) as {
+        active?: boolean;
+        current_phase?: string;
+      };
+      assert.notDeepEqual(await readFile(autopilotPath), before);
+      assert.equal(restartedState.active, true);
+      assert.equal(restartedState.current_phase, "deep-interview");
+
+      const stop = parseSingleJsonStdout(runNativeHookCli({
+        hook_event_name: "Stop",
+        cwd,
+        source: "codex-app",
+        session_id: sessionId,
+        thread_id: threadId,
+        turn_id: "stop-disabled-team-terminal-restart",
+      }, {
+        cwd,
+        env: { ...process.env, OMX_ROOT: "", OMX_STATE_ROOT: "" },
+      }));
+      assert.equal(stop.decision, "block");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  async function assertG2aDocumentationReferenceIsInert(transport: "raw" | "compiled"): Promise<void> {
+    const name = `g2a-${transport}`;
+    const cwd = await mkdtemp(join(tmpdir(), `omx-native-${name}-`));
+    const sessionId = `sess-${name}`;
+    const threadId = `thread-${name}`;
+    const stateDir = join(cwd, ".omx", "state");
+    const sessionDir = join(stateDir, "sessions", sessionId);
+    const skillDetailPaths = [
+      join(stateDir, "skill-active-state.json"),
+      join(stateDir, "ralplan-state.json"),
+      join(sessionDir, "skill-active-state.json"),
+      join(sessionDir, "ralplan-state.json"),
+    ];
+    const env = { ...process.env, OMX_ROOT: "", OMX_STATE_ROOT: "", OMX_TEAM_MODE: "" };
+    const payload = { hook_event_name: "UserPromptSubmit" as const, cwd, source: "codex-app", session_id: sessionId, thread_id: threadId, turn_id: `turn-${name}`, prompt: "use $ralplan is the consensus-planning command" };
+    try {
+      await writeJson(join(cwd, ".omx", "setup-scope.json"), { scope: "project", teamMode: "disabled" });
+      assert.deepEqual(skillDetailPaths.map(existsSync), [false, false, false, false], name);
+      if (transport === "raw") {
+        const submit = await dispatchCodexNativeHook(payload, { cwd });
+        assert.equal(submit.skillState, null, name);
+        assert.equal(submit.outputJson, null, name);
+      } else {
+        assert.deepEqual(parseSingleJsonStdout(runNativeHookCli(payload, { cwd, env })), {}, name);
+      }
+      assert.deepEqual(skillDetailPaths.map(existsSync), [false, false, false, false], name);
+      const stopPayload = { ...payload, hook_event_name: "Stop" as const, turn_id: `stop-${name}` };
+      if (transport === "raw") {
+        assert.equal((await dispatchCodexNativeHook(stopPayload, { cwd })).outputJson, null, name);
+      } else {
+        assert.notEqual(parseSingleJsonStdout(runNativeHookCli(stopPayload, { cwd, env })).decision, "block", name);
+      }
+      assert.deepEqual(skillDetailPaths.map(existsSync), [false, false, false, false], name);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }
+
+  async function assertG2bTerminalStateIsInert(transport: "raw" | "compiled"): Promise<void> {
+    const name = `g2b-${transport}`;
+    const cwd = await mkdtemp(join(tmpdir(), `omx-native-${name}-`));
+    const sessionId = `sess-${name}`;
+    const threadId = `thread-${name}`;
+    const stateDir = join(cwd, ".omx", "state");
+    const sessionDir = join(stateDir, "sessions", sessionId);
+    const paths = [
+      join(stateDir, "skill-active-state.json"),
+      join(stateDir, "autopilot-state.json"),
+      join(sessionDir, "skill-active-state.json"),
+      join(sessionDir, "autopilot-state.json"),
+      join(stateDir, "session.json"),
+    ];
+    const env = { ...process.env, OMX_ROOT: "", OMX_STATE_ROOT: "", OMX_TEAM_MODE: "" };
+    const payload = { hook_event_name: "UserPromptSubmit" as const, cwd, source: "codex-app", session_id: sessionId, thread_id: threadId, turn_id: `turn-${name}`, prompt: "do not start $autopilot — café" };
+    try {
+      await writeJson(join(cwd, ".omx", "setup-scope.json"), { scope: "project", teamMode: "disabled" });
+      await writeJson(paths[0], { active: false, skill: "ralplan", phase: "complete", session_id: "root-skill-session", thread_id: "root-skill-thread", turn_id: "root-skill-turn", completed_at: "2026-07-01T00:00:00.000Z", updated_at: "2026-07-01T00:00:01.000Z" });
+      await writeJson(paths[1], { active: false, mode: "autopilot", current_phase: "complete", session_id: "root-detail-session", thread_id: "root-detail-thread", turn_id: "root-detail-turn", completed_at: "2026-07-02T00:00:00.000Z", updated_at: "2026-07-02T00:00:01.000Z" });
+      await writeJson(paths[2], { active: false, skill: "team", phase: "complete", session_id: "session-skill-session", thread_id: "session-skill-thread", turn_id: "session-skill-turn", completed_at: "2026-07-03T00:00:00.000Z", updated_at: "2026-07-03T00:00:01.000Z" });
+      await writeJson(paths[3], { active: false, mode: "autopilot", current_phase: "complete", session_id: "session-detail-session", thread_id: "session-detail-thread", turn_id: "session-detail-turn", completed_at: "2026-07-04T00:00:00.000Z", updated_at: "2026-07-04T00:00:01.000Z" });
+      await writeJson(paths[4], { session_id: sessionId, native_session_id: `native-${name}`, thread_id: "pointer-thread", turn_id: "pointer-turn", created_at: "2026-07-05T00:00:00.000Z", updated_at: "2026-07-05T00:00:01.000Z", cwd });
+      const buffers = await Promise.all(paths.map((path) => readFile(path)));
+      if (transport === "raw") {
+        const submit = await dispatchCodexNativeHook(payload, { cwd });
+        assert.equal(submit.skillState, null, name);
+        assert.equal(submit.outputJson, null, name);
+      } else {
+        assert.deepEqual(parseSingleJsonStdout(runNativeHookCli(payload, { cwd, env })), {}, name);
+      }
+      assert.deepEqual(await Promise.all(paths.map((path) => readFile(path))), buffers, name);
+      const stopPayload = { ...payload, hook_event_name: "Stop" as const, turn_id: `stop-${name}` };
+      if (transport === "raw") {
+        assert.equal((await dispatchCodexNativeHook(stopPayload, { cwd })).outputJson, null, name);
+      } else {
+        assert.notEqual(parseSingleJsonStdout(runNativeHookCli(stopPayload, { cwd, env })).decision, "block", name);
+      }
+      assert.deepEqual(await Promise.all(paths.map((path) => readFile(path))), buffers, name);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }
+
+  it("keeps G2a documentation reference state-free through raw UserPromptSubmit and Stop", async () => {
+    await assertG2aDocumentationReferenceIsInert("raw");
+  });
+
+  it("keeps G2a documentation reference state-free through compiled UserPromptSubmit and Stop", async () => {
+    await assertG2aDocumentationReferenceIsInert("compiled");
+  });
+
+  it("keeps G2b negated terminal root/session conflict byte-identical through raw UserPromptSubmit and Stop", async () => {
+    await assertG2bTerminalStateIsInert("raw");
+  });
+
+  it("keeps G2b negated terminal root/session conflict byte-identical through compiled UserPromptSubmit and Stop", async () => {
+    await assertG2bTerminalStateIsInert("compiled");
+  });
+
+  async function assertG1bURestart(transport: "raw" | "compiled"): Promise<void> {
+    const cwd = await mkdtemp(join(tmpdir(), `omx-native-${transport}-g1bu-restart-`));
+    const sessionId = `sess-g1bu-${transport}`;
+    const threadId = `thread-g1bu-${transport}`;
+    const priorTurnId = `turn-g1bu-${transport}-old`;
+    const turnId = `turn-g1bu-${transport}-new`;
+    const prompt = "$team $autopilot restart — café";
+    const stateDir = join(cwd, ".omx", "state");
+    const sessionDir = join(stateDir, "sessions", sessionId);
+    const sessionSkillPath = join(sessionDir, "skill-active-state.json");
+    const sessionAutopilotPath = join(sessionDir, "autopilot-state.json");
+    const env = { ...process.env, OMX_ROOT: "", OMX_STATE_ROOT: "", OMX_TEAM_MODE: "", TMUX: "", TMUX_PANE: "" };
+    try {
+      await writeJson(join(cwd, ".omx", "setup-scope.json"), { scope: "project", teamMode: "disabled" });
+      await writeJson(join(stateDir, "skill-active-state.json"), { active: true, skill: "autopilot", phase: "completing", session_id: sessionId, thread_id: threadId, turn_id: priorTurnId, marker: "root-skill", active_skills: [{ skill: "autopilot", phase: "completing", active: true, session_id: sessionId, thread_id: threadId, turn_id: priorTurnId }] });
+      await writeJson(join(stateDir, "autopilot-state.json"), { active: false, mode: "autopilot", current_phase: "complete", session_id: sessionId, thread_id: threadId, turn_id: priorTurnId, marker: "root-autopilot" });
+      await writeJson(sessionSkillPath, { active: true, skill: "autopilot", phase: "completing", session_id: sessionId, thread_id: threadId, turn_id: priorTurnId, marker: "session-skill", active_skills: [{ skill: "autopilot", phase: "completing", active: true, session_id: sessionId, thread_id: threadId, turn_id: priorTurnId }] });
+      await writeJson(sessionAutopilotPath, { active: false, mode: "autopilot", current_phase: "complete", session_id: sessionId, thread_id: threadId, turn_id: priorTurnId, marker: "session-autopilot" });
+      const payload = { hook_event_name: "UserPromptSubmit" as const, cwd, source: "codex-app", session_id: sessionId, thread_id: threadId, turn_id: turnId, prompt };
+      let output: Record<string, unknown> | null;
+      if (transport === "raw") {
+        const result = await dispatchCodexNativeHook(payload, { cwd });
+        assert.equal(result.skillState?.skill, "autopilot");
+        assert.equal(result.skillState?.active, true);
+        output = result.outputJson;
+      } else {
+        const input = Buffer.from(JSON.stringify(payload), "utf-8");
+        assert.equal(input.toString("utf-8"), JSON.stringify(payload));
+        output = parseSingleJsonStdout(runNativeHookCli(input.toString("utf-8"), { cwd, env }));
+      }
+      assert.doesNotMatch(JSON.stringify(output), /\$team" -> team/);
+      assert.doesNotMatch(JSON.stringify(output), /\$team" -> team/);
+      const skillState = JSON.parse(await readFile(sessionSkillPath, "utf-8")) as { active?: boolean; skill?: string; turn_id?: string; active_skills?: Array<{ skill?: string }> };
+      assert.equal(skillState.active, true);
+      assert.equal(skillState.skill, "autopilot");
+      assert.equal(skillState.turn_id, turnId);
+      assert.deepEqual(skillState.active_skills?.map((entry) => entry.skill), ["autopilot"]);
+      const autopilotState = JSON.parse(await readFile(sessionAutopilotPath, "utf-8")) as { active?: boolean; current_phase?: string; turn_id?: string; state?: { handoff_artifacts?: { context_snapshot?: { path?: string } } } };
+      assert.equal(autopilotState.active, true);
+      assert.equal(autopilotState.current_phase, "deep-interview");
+      assert.equal(autopilotState.turn_id, turnId);
+      const contextSnapshotPath = autopilotState.state?.handoff_artifacts?.context_snapshot?.path;
+      assert.ok(contextSnapshotPath);
+      assert.ok((await readFile(resolve(cwd, contextSnapshotPath))).includes(Buffer.from(prompt, "utf-8")));
+      assert.equal(existsSync(join(stateDir, "team-state.json")), false);
+      const stopPayload = { ...payload, hook_event_name: "Stop" as const, turn_id: `stop-g1bu-${transport}` };
+      if (transport === "raw") {
+        assert.equal((await dispatchCodexNativeHook(stopPayload, { cwd })).outputJson?.decision, "block");
+      } else {
+        assert.equal(parseSingleJsonStdout(runNativeHookCli(stopPayload, { cwd, env })).decision, "block");
+      }
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }
+
+  it("restarts terminal Autopilot through disabled-Team raw UserPromptSubmit for G1b-U", async () => {
+    await assertG1bURestart("raw");
+  });
+
+  it("restarts terminal Autopilot through disabled-Team compiled UserPromptSubmit for G1b-U", async () => {
+    await assertG1bURestart("compiled");
+  });
+
+  it("does not crash Stop hook dispatch when the exec follow-up queue is malformed", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "omx-native-stop-exec-followup-corrupt-"));
+    try {
+      const session = await writeSessionStart(cwd, "sess-exec-followup-corrupt");
+      const queuePath = join(cwd, ".omx", "state", "sessions", session.session_id, "exec-followups.json");
+      await mkdir(dirname(queuePath), { recursive: true });
+      await writeFile(queuePath, '{"version":1,"records":[', "utf-8");
 
 			const result = await dispatchCodexNativeHook({
 				hook_event_name: "Stop",
@@ -2982,7 +4108,11 @@ PY`,
         },
         { cwd: conflictingCwd },
       );
-      assert.equal(conflictingActivation.skillState?.session_id, "native-conflicting-3138");
+      assert.equal(conflictingActivation.skillState, null);
+      assert.equal(
+        existsSync(join(conflictingCwd, ".omx", "state", "sessions", "native-conflicting-3138", "deep-interview-state.json")),
+        false,
+      );
 
       const staleCwd = join(root, "stale");
       const staleStatePath = join(staleCwd, ".omx", "state", "session.json");
@@ -3032,8 +4162,8 @@ PY`,
         session_id: "native-unmatched-foreign-3138",
         prompt: "$deep-interview must not escape a foreign pointer",
       }, { cwd: foreignCwd });
-      assert.equal(foreignActivation.skillState?.session_id, "native-unmatched-foreign-3138");
-      assert.equal(existsSync(join(foreignCwd, ".omx", "state", "sessions", "native-unmatched-foreign-3138")), true);
+      assert.equal(foreignActivation.skillState, null);
+      assert.equal(existsSync(join(foreignCwd, ".omx", "state", "sessions", "native-unmatched-foreign-3138")), false);
       assert.equal(existsSync(join(foreignCwd, ".omx", "state", "skill-active-state.json")), false);
 
       const foreignStop = await dispatchCodexNativeHook({
@@ -8474,24 +9604,247 @@ export async function onHookEvent(event) {
 		}
 	});
 
-	it("denies direct $team prompt activation from Codex App/native outside tmux", async () => {
-		const cwd = await mkdtemp(
-			join(tmpdir(), "omx-native-hook-team-native-block-"),
-		);
-		try {
-			await mkdir(join(cwd, ".omx", "state"), { recursive: true });
-			const result = await dispatchCodexNativeHook(
-				{
-					hook_event_name: "UserPromptSubmit",
-					cwd,
-					source: "codex-app",
-					session_id: "sess-team-1",
-					thread_id: "thread-team-1",
-					turn_id: "turn-team-1",
-					prompt: "$team ship this fix with verification",
-				},
-				{ cwd },
-			);
+  it("rejects inert and reserved direct-looking submits across native and CLI surfaces without Stop blockers", async () => {
+    const cases = [
+      { source: "codex-app", sessionId: "sess-inert-native", prompt: "Do not run $autopilot" },
+      { source: "cli", sessionId: "sess-reserved-cli", prompt: "/prompts:architect $autopilot" },
+      { source: "codex-app", sessionId: "sess-marked-native", prompt: "[omx question answered] $autopilot" },
+    ] as const;
+
+    for (const testCase of cases) {
+      const cwd = await mkdtemp(join(tmpdir(), `omx-native-hook-${testCase.sessionId}-`));
+      try {
+        await mkdir(join(cwd, ".omx", "state"), { recursive: true });
+        const submit = await dispatchCodexNativeHook(
+          {
+            hook_event_name: "UserPromptSubmit",
+            cwd,
+            source: testCase.source,
+            session_id: testCase.sessionId,
+            thread_id: `thread-${testCase.sessionId}`,
+            prompt: testCase.prompt,
+          },
+          { cwd },
+        );
+
+        assert.equal(submit.skillState, null);
+        assert.equal(
+          existsSync(join(cwd, ".omx", "state", "sessions", testCase.sessionId, "skill-active-state.json")),
+          false,
+        );
+        assert.equal(existsSync(join(cwd, ".omx", "state", "skill-active-state.json")), false);
+        assert.equal(
+          existsSync(join(cwd, ".omx", "state", "sessions", testCase.sessionId, "autopilot-state.json")),
+          false,
+        );
+        assert.doesNotMatch(
+          String((submit.outputJson as { hookSpecificOutput?: { additionalContext?: string } } | null)?.hookSpecificOutput?.additionalContext ?? ""),
+          /detected workflow keyword|Autopilot protocol|denied workflow keyword/i,
+        );
+
+        const stop = await dispatchCodexNativeHook(
+          { hook_event_name: "Stop", cwd, source: testCase.source, session_id: testCase.sessionId },
+          { cwd },
+        );
+        assert.equal(stop.outputJson, null);
+      } finally {
+        await rm(cwd, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("keeps issue #3133 negated, multilingual, and quoted ralplan mentions inert on the native entrypoint", async () => {
+    const rejectedInputs = [
+      { source: "codex-app", sessionId: "sess-3133-negated", prompt: "Do not run $ralplan and do not repeat the review." },
+      { source: "cli", sessionId: "sess-3133-russian", prompt: "Не запускай $ralplan" },
+      { source: "codex-app", sessionId: "sess-3133-quoted", prompt: "Logged review text: \"$ralplan plan this change\"." },
+    ] as const;
+
+    for (const testCase of rejectedInputs) {
+      const cwd = await mkdtemp(join(tmpdir(), `omx-native-hook-${testCase.sessionId}-`));
+      try {
+        const stateDir = join(cwd, ".omx", "state");
+        const sessionDir = join(stateDir, "sessions", testCase.sessionId);
+        await mkdir(stateDir, { recursive: true });
+
+        const submit = await dispatchCodexNativeHook(
+          {
+            hook_event_name: "UserPromptSubmit",
+            cwd,
+            source: testCase.source,
+            session_id: testCase.sessionId,
+            thread_id: `thread-${testCase.sessionId}`,
+            turn_id: `turn-${testCase.sessionId}`,
+            prompt: testCase.prompt,
+          },
+          { cwd },
+        );
+
+        assert.equal(submit.skillState, null);
+        assert.equal(existsSync(join(sessionDir, "skill-active-state.json")), false);
+        assert.equal(existsSync(join(sessionDir, "ralplan-state.json")), false);
+        assert.equal(existsSync(join(stateDir, "skill-active-state.json")), false);
+        assert.doesNotMatch(
+          String((submit.outputJson as { hookSpecificOutput?: { additionalContext?: string } } | null)?.hookSpecificOutput?.additionalContext ?? ""),
+          /ralplan/i,
+        );
+
+        const stop = await dispatchCodexNativeHook(
+          {
+            hook_event_name: "Stop",
+            cwd,
+            source: testCase.source,
+            session_id: testCase.sessionId,
+            thread_id: `thread-${testCase.sessionId}`,
+            turn_id: `stop-${testCase.sessionId}`,
+          },
+          { cwd },
+        );
+        assert.equal(stop.outputJson, null);
+        assert.doesNotMatch(JSON.stringify(stop.outputJson ?? {}), /ralplan/i);
+      } finally {
+        await rm(cwd, { recursive: true, force: true });
+      }
+    }
+
+    const cwd = await mkdtemp(join(tmpdir(), "omx-native-hook-3133-positive-"));
+    const sessionId = "sess-3133-positive";
+    try {
+      const stateDir = join(cwd, ".omx", "state");
+      const sessionDir = join(stateDir, "sessions", sessionId);
+      await mkdir(stateDir, { recursive: true });
+      const submit = await dispatchCodexNativeHook(
+        {
+          hook_event_name: "UserPromptSubmit",
+          cwd,
+          source: "codex-app",
+          session_id: sessionId,
+          thread_id: "thread-3133-positive",
+          turn_id: "turn-3133-positive",
+          prompt: "$ralplan plan this change",
+        },
+        { cwd },
+      );
+
+      assert.equal(submit.skillState?.skill, "ralplan");
+      assert.equal(submit.skillState?.active, true);
+      assert.equal(existsSync(join(sessionDir, "skill-active-state.json")), true);
+      assert.equal(existsSync(join(sessionDir, "ralplan-state.json")), true);
+
+      const stop = await dispatchCodexNativeHook(
+        {
+          hook_event_name: "Stop",
+          cwd,
+          source: "codex-app",
+          session_id: sessionId,
+          thread_id: "thread-3133-positive",
+          turn_id: "stop-3133-positive",
+        },
+        { cwd },
+      );
+      assert.equal(stop.outputJson?.decision, "block");
+      assert.match(String(stop.outputJson?.reason ?? ""), /ralplan is still active/i);
+      assert.match(String(stop.outputJson?.reason ?? ""), /continue from the current ralplan artifact/i);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("activates leading direct workflow invocations on native and CLI prompt submits", async () => {
+    for (const source of ["codex-app", "cli"] as const) {
+      const cwd = await mkdtemp(join(tmpdir(), `omx-native-hook-direct-${source}-`));
+      const sessionId = `sess-direct-${source}`;
+      try {
+        await mkdir(join(cwd, ".omx", "state"), { recursive: true });
+        const result = await dispatchCodexNativeHook(
+          {
+            hook_event_name: "UserPromptSubmit",
+            cwd,
+            source,
+            session_id: sessionId,
+            thread_id: `thread-${source}`,
+            prompt: "$autopilot resume this task",
+          },
+          { cwd },
+        );
+
+        assert.equal(result.skillState?.skill, "autopilot");
+        assert.equal(result.skillState?.active, true);
+        assert.equal(
+          existsSync(join(cwd, ".omx", "state", "sessions", sessionId, "autopilot-state.json")),
+          true,
+        );
+      } finally {
+        await rm(cwd, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("uses the first effective Team match for native outside-tmux blocking", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "omx-native-hook-team-first-effective-"));
+    try {
+      await mkdir(join(cwd, ".omx", "state"), { recursive: true });
+      const ralphFirst = await dispatchCodexNativeHook(
+        {
+          hook_event_name: "UserPromptSubmit",
+          cwd,
+          source: "codex-app",
+          session_id: "sess-ralph-first-team",
+          thread_id: "thread-ralph-first-team",
+          prompt: "$ralph $team ship this fix",
+        },
+        { cwd },
+      );
+      assert.equal(ralphFirst.skillState?.skill, "ralph");
+      assert.equal(ralphFirst.skillState?.active, true);
+      assert.doesNotMatch(JSON.stringify(ralphFirst.outputJson), /cannot activate the tmux-only `team` workflow directly/);
+      assert.equal(
+        existsSync(join(cwd, ".omx", "state", "sessions", "sess-ralph-first-team", "ralph-state.json")),
+        true,
+      );
+      assert.equal(ralphFirst.skillState?.active_skills?.some((entry) => entry.skill === "team"), false);
+      assert.equal(existsSync(join(cwd, ".omx", "state", "team-state.json")), false);
+      assert.doesNotMatch(JSON.stringify(ralphFirst.outputJson), /Use the durable OMX team runtime via `omx team \.\.\.`/);
+
+      const teamFirst = await dispatchCodexNativeHook(
+        {
+          hook_event_name: "UserPromptSubmit",
+          cwd,
+          source: "codex-app",
+          session_id: "sess-team-first-ralph",
+          thread_id: "thread-team-first-ralph",
+          prompt: "$team $ralph ship this fix",
+        },
+        { cwd },
+      );
+      assert.equal(teamFirst.skillState?.skill, "team");
+      assert.equal(teamFirst.skillState?.active, false);
+      assert.match(JSON.stringify(teamFirst.outputJson), /cannot activate the tmux-only `team` workflow directly/);
+      assert.equal(
+        existsSync(join(cwd, ".omx", "state", "sessions", "sess-team-first-ralph", "ralph-state.json")),
+        false,
+      );
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("denies direct $team prompt activation from Codex App/native outside tmux", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "omx-native-hook-team-native-block-"));
+    try {
+      await mkdir(join(cwd, ".omx", "state"), { recursive: true });
+      const result = await dispatchCodexNativeHook(
+        {
+          hook_event_name: "UserPromptSubmit",
+          cwd,
+          source: "codex-app",
+          session_id: "sess-team-1",
+          thread_id: "thread-team-1",
+          turn_id: "turn-team-1",
+          prompt: "$team ship this fix with verification",
+        },
+        { cwd },
+      );
 
 			assert.equal(result.omxEventName, "keyword-detector");
 			assert.equal(result.skillState?.skill, "team");
@@ -30124,6 +31477,68 @@ describe("codex native hook triage integration", () => {
       assert.equal(existsSync(stateFile), false);
     } finally {
       await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps marked workflow-like answers inert without treating them as a new triage request", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "omx-triage-marked-answer-inert-"));
+    const codexHome = await mkdtemp(join(tmpdir(), "omx-triage-marked-answer-home-"));
+    const previousCodexHome = process.env.CODEX_HOME;
+    try {
+      await writeJson(join(codexHome, ".omx-config.json"), {
+        promptRouting: { triage: { enabled: true } },
+      });
+      process.env.CODEX_HOME = codexHome;
+      resetTriageConfigCache();
+      await mkdir(join(cwd, ".omx", "state"), { recursive: true });
+
+      const result = await dispatchCodexNativeHook(
+        {
+          hook_event_name: "UserPromptSubmit",
+          cwd,
+          source: "codex-app",
+          session_id: "triage-marked-answer-inert",
+          thread_id: "thread-triage-marked-answer-inert",
+          prompt: "[omx question answered] explain this function?",
+        },
+        { cwd },
+      );
+
+      const additionalContext = String(
+        (result.outputJson as { hookSpecificOutput?: { additionalContext?: string } })?.hookSpecificOutput?.additionalContext ?? "",
+      );
+      assert.equal(result.skillState, null);
+      assert.equal(additionalContext, "");
+      assert.equal(
+        existsSync(join(cwd, ".omx", "state", "sessions", "triage-marked-answer-inert", "autopilot-state.json")),
+        false,
+      );
+      assert.equal(
+        existsSync(join(cwd, ".omx", "state", "sessions", "triage-marked-answer-inert", "prompt-routing-state.json")),
+        false,
+      );
+      const promptsResult = await dispatchCodexNativeHook(
+        {
+          hook_event_name: "UserPromptSubmit",
+          cwd,
+          source: "codex-app",
+          session_id: "triage-prompts-inert",
+          thread_id: "thread-triage-prompts-inert",
+          prompt: "/prompts:architect explain this function?",
+        },
+        { cwd },
+      );
+      assert.equal(promptsResult.skillState, null);
+      assert.equal(
+        existsSync(join(cwd, ".omx", "state", "sessions", "triage-prompts-inert", "prompt-routing-state.json")),
+        false,
+      );
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      resetTriageConfigCache();
+      await rm(cwd, { recursive: true, force: true });
+      await rm(codexHome, { recursive: true, force: true });
     }
   });
 

@@ -51,6 +51,184 @@ export const MANAGED_CODEX_HOOK_EVENTS = [
   'Stop',
 ] as const;
 
+export const PACKED_INSTALL_NATIVE_HOOK_REGRESSION_PROMPTS = [
+  { name: 'directive-use-ralplan', prompt: 'use $ralplan plan this', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'directive-please-use-ralplan', prompt: 'please use $ralplan plan it', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'directive-run-ralplan', prompt: 'run $ralplan plan this', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'directive-list-use-ralplan', prompt: '- use $ralplan plan this', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'directive-documentation-then-command', prompt: 'use $ralplan is the consensus-planning command\n$autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'directive-documentation-then-implicit-command', prompt: 'use $ralplan is the consensus-planning command\nUse autopilot mode.', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'directive-documentation-trailing-prose-then-command', prompt: 'use $ralplan is the workflow command for planning\n$autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'directive-documentation-implicit-prose', prompt: 'use $ralplan is the workflow command for autopilot mode', expectedSkill: null, expectedStopBlock: false },
+  { name: 'directive-documentation-alias-prose', prompt: 'use $ralplan is the consensus-planning command\nAutopilot mode is its alias.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'directive-coordinated-documentation-then-command', prompt: '- use $ralplan and $autopilot are workflow commands\n$ralph execute it', expectedSkill: 'ralph', expectedStopBlock: true },
+  { name: 'directive-documentation-semicolon-directive', prompt: 'use $ralplan is the consensus-planning command; use $autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'directive-two-documentation-blocks', prompt: 'use $ralplan is the consensus-planning command\nuse $autopilot is the autonomous workflow command\n$ralph execute it', expectedSkill: 'ralph', expectedStopBlock: true },
+  { name: 'directive-documentation-embedded-token-then-command', prompt: 'use $ralplan is the workflow command for $team\n$autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'doc-task-noun', prompt: 'use $ralplan is the workflow command; use $autopilot update the documentation', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'doc-implicit-followup', prompt: 'use $ralplan is the consensus-planning command; use autopilot mode.', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'doc-transition-followup', prompt: 'use $ralplan is the consensus-planning command; then use $autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'doc-explicit-alias', prompt: 'use $ralplan is the consensus-planning command; $team is its alias', expectedSkill: null, expectedStopBlock: false },
+  { name: 'doc-implicit-chain', prompt: 'use $ralplan is the consensus-planning command\nAutopilot mode is its alias.\n$ralph execute it', expectedSkill: 'ralph', expectedStopBlock: true },
+  { name: 'doc-fullwidth-separator', prompt: 'use $ralplan，$autopilot are workflow commands', expectedSkill: null, expectedStopBlock: false },
+  { name: 'doc-compact-slash', prompt: 'use $ralplan/$autopilot are workflow commands\n$ralph execute it', expectedSkill: 'ralph', expectedStopBlock: true },
+  { name: 'reference-prompts-followup', prompt: '[docs]: /target "title\nUse /prompts:architect"\n$ralph execute it', expectedSkill: 'ralph', expectedStopBlock: true },
+  { name: 'doc-period-implicit', prompt: 'use $ralplan is the consensus-planning command. Use autopilot mode.', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'doc-bare-implicit', prompt: 'use $ralplan is the consensus-planning command; autopilot mode.', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'doc-fullwidth-semicolon', prompt: 'use $ralplan is the consensus-planning command； use $autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'doc-but-followup', prompt: 'use $ralplan is the workflow command; but use $autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'doc-fullwidth-oxford', prompt: 'use $ralplan， $autopilot， and $team are workflow commands', expectedSkill: null, expectedStopBlock: false },
+  { name: 'reference-zero-title', prompt: '[docs]: ./target\n(autopilot mode)', expectedSkill: null, expectedStopBlock: false },
+  { name: 'doc-also-alias-explicit', prompt: 'use $ralplan is the consensus-planning command; $team is also its alias', expectedSkill: null, expectedStopBlock: false },
+  { name: 'doc-also-alias-implicit', prompt: 'use $ralplan is the consensus-planning command\nAutopilot mode is also its alias.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'doc-embedded-mention', prompt: 'use $ralplan is the workflow command; $team appears in the documentation.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'chained-negation', prompt: '$ralplan; $autopilot is prohibited', expectedSkill: 'ralplan', expectedStopBlock: true, expectedDeferredSkills: [] },
+  { name: 'long-negation', prompt: `$ralplan; $autopilot${' '.repeat(193)}is prohibited`, expectedSkill: 'ralplan', expectedStopBlock: true, expectedDeferredSkills: [] },
+  { name: 'doc-arabic-comma', prompt: 'use $ralplan، $autopilot are workflow commands', expectedSkill: null, expectedStopBlock: false },
+  { name: 'arabic-negation', prompt: '$ralplan، $autopilot are prohibited', expectedSkill: null, expectedStopBlock: false },
+  { name: 'implicit-arabic-negation', prompt: 'Autopilot mode، deep interview are prohibited.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'fullwidth-frame-reset', prompt: 'For instance: manual mode is slower。 Use autopilot mode.', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'doc-abbreviation', prompt: 'use $ralplan is the workflow command, e.g. use $autopilot in examples.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'implicit-doc-mention', prompt: 'use $ralplan is the workflow command; autopilot mode appears in the documentation.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'implicit-doc-chain', prompt: 'use $ralplan is the workflow command; autopilot mode is its alias; $ralph execute it', expectedSkill: 'ralph', expectedStopBlock: true },
+  { name: 'long-command-gap', prompt: `use $ralplan is the workflow command; use${' '.repeat(161)}$autopilot build it`, expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'ideographic-negation', prompt: '$ralplan、 $autopilot are prohibited', expectedSkill: null, expectedStopBlock: false },
+  { name: 'implicit-ideo-negation', prompt: 'Autopilot mode、 deep interview are prohibited.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'doc-exclamation', prompt: 'use $ralplan is the consensus-planning command! run $autopilot', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'doc-fullwidth-question', prompt: 'use $ralplan is the consensus-planning command？ run $autopilot', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'implicit-doc-predecessor', prompt: 'Autopilot mode is workflow documentation.\n$ralph execute it', expectedSkill: 'ralph', expectedStopBlock: true },
+  { name: 'confusable-use-verb', prompt: 'uſe $ralplan plan it', expectedSkill: null, expectedStopBlock: false },
+  { name: 'confusable-please', prompt: 'pleaſe use $ralplan plan it', expectedSkill: null, expectedStopBlock: false },
+  { name: 'confusable-prompts-token-then-command', prompt: '/promptſ:architect; use autopilot mode.', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'reserved-em-dash-boundary', prompt: '/prompts:architect— use autopilot mode', expectedSkill: null, expectedStopBlock: false },
+  { name: 'reserved-fullwidth-comma-boundary', prompt: '/prompts:architect， use autopilot mode', expectedSkill: null, expectedStopBlock: false },
+  { name: 'confusable-implicit-verb', prompt: 'Do not use deep interview but uſe autopilot mode.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'frame-fullwidth-colon', prompt: 'For instance： use autopilot mode.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'frame-fullwidth-comma', prompt: 'For instance， use autopilot mode.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'frame-arabic-comma', prompt: 'For instance، use autopilot mode.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'frame-ideo-comma', prompt: 'For instance、 use autopilot mode.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'doc-explicit-documented', prompt: 'use $ralplan is the workflow command; $autopilot is documented in the guide.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'doc-explicit-described', prompt: '$autopilot is described in the manual.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'doc-comma-followup', prompt: 'use $ralplan is the workflow command, but use $autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'doc-fw-comma-followup', prompt: 'use $ralplan is the workflow command， but use $autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'doc-arabic-followup', prompt: 'use $ralplan is the workflow command، but use $autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'doc-ideo-followup', prompt: 'use $ralplan is the workflow command、 but use $autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'neg-arabic-followup', prompt: 'Do not run $ralplan، use $autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'neg-ideo-followup', prompt: 'Do not run $ralplan、 use $autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'implicit-doc-prefix-next', prompt: 'The docs mention autopilot mode.\n$ralplan plan it', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'implicit-doc-prefix-line', prompt: 'The docs mention autopilot mode; use $ralplan plan it', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'implicit-doc-subject-line', prompt: 'Autopilot mode is workflow documentation; use $ralplan plan it', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'compact-explicit-negation', prompt: '$ralplan,$autopilot are prohibited', expectedSkill: null, expectedStopBlock: false },
+  { name: 'compact-implicit-negation', prompt: 'Autopilot mode،deep interview are prohibited.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'doc-clause-local-prefix', prompt: '$ralplan; $autopilot is documented in the guide.', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'doc-chain-described', prompt: 'use $ralplan is the workflow command; autopilot mode is documented in the guide; $team execute it', expectedSkill: 'team', expectedStopBlock: false, insideTmux: true },
+  { name: 'doc-chain-workflow', prompt: 'use $ralplan is the workflow command; autopilot mode is workflow documentation; use $ralph execute it', expectedSkill: 'ralph', expectedStopBlock: true },
+  { name: 'ref-inline-explicit', prompt: '[docs]: $ralplan\n$autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'ref-inline-prompts', prompt: '[docs]: /prompts:architect\n$autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'list-fullwidth-explicit-doc', prompt: '- $ralplan： consensus-planning workflow', expectedSkill: null, expectedStopBlock: false },
+  { name: 'list-fullwidth-implicit-doc', prompt: '- autopilot mode： autonomous workflow command', expectedSkill: null, expectedStopBlock: false },
+  { name: 'possessive-straight', prompt: "$ralplan's workflow is documented", expectedSkill: null, expectedStopBlock: false },
+  { name: 'possessive-curly', prompt: '$ralplan’s workflow is documented', expectedSkill: null, expectedStopBlock: false },
+  { name: 'possessive-fullwidth', prompt: '$ralplan＇s workflow is documented', expectedSkill: null, expectedStopBlock: false },
+  { name: 'possessive-prompts', prompt: "/prompts:architect's syntax is documented", expectedSkill: null, expectedStopBlock: false },
+  { name: 'malformed-prefix-kata', prompt: '$・autopilot mode', expectedSkill: null, expectedStopBlock: false },
+  { name: 'malformed-prefix-half', prompt: '$･autopilot mode', expectedSkill: null, expectedStopBlock: false },
+  { name: 'malformed-prefix-arabic', prompt: '$٪autopilot mode', expectedSkill: null, expectedStopBlock: false },
+  { name: 'malformed-prefix-division', prompt: '$∕autopilot mode', expectedSkill: null, expectedStopBlock: false },
+  { name: 'doc-but-directive', prompt: 'use $autopilot is documented but use $ralplan plan it', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'list-directive-fw-colon', prompt: '- use $ralplan： consensus-planning workflow', expectedSkill: null, expectedStopBlock: false },
+  { name: 'doc-arabic-question', prompt: 'use $ralplan is the workflow command؟ run $autopilot', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'arabic-semicolon-negation', prompt: '$ralplan؛ $autopilot is prohibited', expectedSkill: 'ralplan', expectedStopBlock: true, expectedDeferredSkills: [] },
+  { name: 'confusable-postposed-transition', prompt: '$ralplan is prohibited but uſe autopilot mode.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'mixed-negation', prompt: 'Autopilot mode and $ralplan are prohibited.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'both-mixed-negation', prompt: 'Both autopilot mode and $ralplan are prohibited.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'mixed-documentation', prompt: 'use $ralplan and autopilot mode are workflow commands', expectedSkill: null, expectedStopBlock: false },
+  { name: 'prose-doc-no-reopen', prompt: '$ralplan is prohibited because docs use $autopilot.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'neg-fw-dot-reopen', prompt: 'Do not run $ralplan． use $autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'neg-greek-q-reopen', prompt: 'Do not run $ralplan; use $autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'unicode-attached-contrast', prompt: 'Do not use deep interview яbut use autopilot mode.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'prefix-list-followup', prompt: 'Do not run $ralplan, $autopilot; use $team execute it', expectedSkill: 'team', expectedStopBlock: false, insideTmux: true },
+  { name: 'mixed-postposed-chain', prompt: '$ralplan, autopilot mode, $team are prohibited.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'implicit-first-doc-chain', prompt: 'Autopilot mode and $ralplan are workflow commands; use $team execute it', expectedSkill: 'team', expectedStopBlock: false, insideTmux: true },
+  { name: 'both-mixed-doc-followup', prompt: 'Both autopilot mode and $ralplan are workflow commands; use $team execute it', expectedSkill: 'team', expectedStopBlock: false, insideTmux: true },
+  { name: 'doc-semicolon-preserves-earlier', prompt: 'Use autopilot mode; use $ralplan is the workflow command.', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'doc-independent-comma', prompt: 'Use autopilot mode, and $ralplan is documented in the guide.', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'reference-unclosed-quote-destination', prompt: '[docs]: "target\n$autopilot build it', expectedSkill: null, expectedStopBlock: false },
+  { name: 'reference-unclosed-inline-destination', prompt: '[docs]: `target\n$autopilot build it', expectedSkill: null, expectedStopBlock: false },
+  { name: 'mixed-prefix-negation-implicit', prompt: 'Do not run $ralplan and use autopilot mode.', expectedSkill: null, expectedStopBlock: false },
+  { name: 'repeated-postposed-followup', prompt: '$team is prohibited and is forbidden; use $ralplan plan it', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'doc-preserves-earlier', prompt: 'Use autopilot mode; "note"; use $ralplan is the workflow command.', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'doc-colon-followup', prompt: 'use $ralplan is the workflow command: use $autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'table-followup', prompt: 'Mode | Meaning\n--- | ---\nmanual | documentation\n$ralplan plan it', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'neg-advance-reopen', prompt: 'Do not run $ralplan but advance to $ultragoal', expectedSkill: 'ultragoal', expectedStopBlock: false },
+  { name: 'neg-jump-reopen', prompt: 'Do not run $ralplan but jump straight to $ultragoal', expectedSkill: 'ultragoal', expectedStopBlock: false },
+  { name: 'reference-plain-title', prompt: '[docs]: /target "title\nplain text"\n$ralplan plan it', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'reference-plain-destination', prompt: '[docs]: ./target\n$ralplan plan it', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'directive-use-the', prompt: 'Do not run $ralplan; use the $autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true },
+  { name: 'directive-continue-after-quote', prompt: '"quoted"\ncontinue with $ralplan', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'doc-advance-followup', prompt: 'use $ralplan is the workflow command; advance to $ultragoal', expectedSkill: 'ultragoal', expectedStopBlock: false },
+  { name: 'directive-run-code-review', prompt: 'run $code-review', expectedSkill: 'code-review', expectedStopBlock: false },
+  { name: 'directive-documentation', prompt: 'use $ralplan is the consensus-planning command', expectedSkill: null, expectedStopBlock: false },
+  { name: 'nested-bounded-child-unbounded-parent', prompt: '"`x`\n$ralplan plan it', expectedSkill: null, expectedStopBlock: false },
+  { name: 'first-contiguous-block-terminal', prompt: '$ralplan plan it\n"x"\n$autopilot build it', expectedSkill: 'ralplan', expectedStopBlock: true, expectedDeferredSkills: [] },
+  { name: 'leading-reserved-dominance', prompt: '/prompts:architect\n"x"\n$ralplan plan it', expectedSkill: null, expectedStopBlock: false },
+  { name: 'list-fence-root-opener', prompt: '- ```\n  sample\n```\n$ralplan plan it', expectedSkill: null, expectedStopBlock: false },
+  { name: 'list-fence-relative-closer', prompt: '- ```\n  sample\n    ```\n$ralplan plan it', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'reference-multiline-title-explicit', prompt: '[docs]: /target "title\nuse /prompts:architect\n$ralplan plan it"', expectedSkill: null, expectedStopBlock: false },
+  { name: 'reference-multiline-title-implicit', prompt: '[docs]: /target "title\nuse autopilot mode"', expectedSkill: null, expectedStopBlock: false },
+  { name: 'reference-next-line-title', prompt: '[docs]: ./target\n  (autopilot mode)', expectedSkill: null, expectedStopBlock: false },
+  { name: 'reference-next-line-destination-title', prompt: '[docs]:\n  ./target\n  (autopilot mode)', expectedSkill: null, expectedStopBlock: false },
+  { name: 'kelvin-case-fold-suffix', prompt: '$ultraworK execute', expectedSkill: null, expectedStopBlock: false },
+  { name: 'katakana-middle-dot-suffix', prompt: '$ralplan・suffix plan it', expectedSkill: null, expectedStopBlock: false },
+  { name: 'halfwidth-middle-dot-suffix', prompt: '$ralplan･suffix plan it', expectedSkill: null, expectedStopBlock: false },
+  { name: 'arabic-percent-suffix', prompt: '$ralplan٪docs', expectedSkill: null, expectedStopBlock: false },
+  { name: 'division-slash-suffix', prompt: '$ralplan∕config', expectedSkill: null, expectedStopBlock: false },
+  { name: 'unclosed-prompts-quote', prompt: '"Use /prompts:architect\n$ralplan plan it', expectedSkill: null, expectedStopBlock: false },
+  { name: 'malformed-prompts-suffix', prompt: '/prompts:architect한글\n$ralplan plan it', expectedSkill: null, expectedStopBlock: false },
+  { name: 'stale-predecessor-prose-directive', prompt: '> quoted context\nProse\n$ralplan implement this', expectedSkill: null, expectedStopBlock: false },
+  { name: 'stale-predecessor-reserved-directive', prompt: '> quoted context\n/prompts:architect\n$ralplan plan this', expectedSkill: null, expectedStopBlock: false },
+  { name: 'stale-predecessor-first-block-terminal', prompt: '> quoted context\n$ralplan plan it\nLater discussion.\n$autopilot build it', expectedSkill: 'ralplan', expectedStopBlock: true, expectedDeferredSkills: [] },
+  { name: 'stale-predecessor-unclosed-after-negation', prompt: 'Do not run $ralplan.\n"unclosed context\n$autopilot build it', expectedSkill: null, expectedStopBlock: false },
+  { name: 'stale-predecessor-reference-unclosed', prompt: '[$ralplan]: ./docs\n"unclosed context\n$autopilot build it', expectedSkill: null, expectedStopBlock: false },
+  { name: 'stale-directive-clause-prefix', prompt: '> quoted context\nProse\nUse $ralplan plan this', expectedSkill: null, expectedStopBlock: false },
+  { name: 'nested-reserved-predecessor-successor', prompt: '- Use /prompts:architect.\n$ralplan plan it', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'nested-fence-predecessor-successor', prompt: '- - ```\n    quoted context\n    ```\n$ralplan plan it', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'reference-multiline-destination-implicit', prompt: '[docs]:\nautopilot', expectedSkill: null, expectedStopBlock: false },
+  { name: 'middle-dot-suffix', prompt: '$ralplan·suffix plan it', expectedSkill: null, expectedStopBlock: false },
+  { name: 'percent-suffix', prompt: '$ralplan%docs', expectedSkill: null, expectedStopBlock: false },
+  { name: 'fullwidth-percent-suffix', prompt: '$ralplan％docs', expectedSkill: null, expectedStopBlock: false },
+  { name: 'g1a-ordered-multi-skill', prompt: '$ralplan, $autopilot; $team', expectedSkill: 'ralplan', expectedStopBlock: true, expectedDeferredSkills: ['autopilot', 'team'], expectedActiveSkills: ['ralplan'], insideTmux: true },
+  { name: 'g1c-duplicate-alias', prompt: '$autopilot $oh-my-codex:autopilot build it', expectedSkill: 'autopilot', expectedStopBlock: true, expectedDeferredSkills: [], expectedActiveSkills: ['autopilot'] },
+  { name: 'b3-longer-valid-fence', prompt: '```text\n$autopilot build it\n````\n$ralplan plan it', expectedSkill: 'ralplan', expectedStopBlock: true },
+  { name: 'b4-shorter-invalid-fence', prompt: '````text\n$autopilot build it\n```\n$ralplan plan it', expectedSkill: null, expectedStopBlock: false },
+  { name: 'b5-different-marker-invalid-fence', prompt: '```text\n$autopilot build it\n~~~\n$ralplan plan it', expectedSkill: null, expectedStopBlock: false },
+] as const;
+
+export function buildPackedRegressionEnvironment(
+  testCase: { readonly name: string; readonly insideTmux?: boolean },
+  baseEnv: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const insideTmux = testCase.insideTmux === true;
+  return {
+    ...baseEnv,
+    OMX_ROOT: '',
+    OMX_STATE_ROOT: '',
+    OMX_TEAM_STATE_ROOT: '',
+    OMX_SESSION_ID: '',
+    CODEX_SESSION_ID: '',
+    SESSION_ID: '',
+    OMX_TEAM_WORKER: '',
+    OMX_TEAM_INTERNAL_WORKER: '',
+    OMX_TEAM_LEADER_CWD: '',
+    OMX_TEAM_MODE: insideTmux ? 'enabled' : '',
+    OMX_QUESTION_RETURN_PANE: '',
+    OMX_LEADER_PANE_ID: '',
+    OMX_TMUX_HUD_OWNER: '',
+    TMUX: insideTmux ? '/tmp/tmux-pr3140-regression' : '',
+    TMUX_PANE: insideTmux ? '%3140' : '',
+  };
+}
+
 export const PACKED_INSTALL_NATIVE_HOOK_SMOKE_EVENTS = MANAGED_CODEX_HOOK_EVENTS;
 
 export type ManagedCodexHookEvent = typeof MANAGED_CODEX_HOOK_EVENTS[number];
@@ -1023,7 +1201,6 @@ export function probeCodexVersion(
 ): string {
   return resolvePinnedCodexExecutable(cwd, env, seam).version;
 }
-
 function usage(): string {
   return [
     'Usage: node scripts/smoke-packed-install.mjs',
@@ -1187,6 +1364,81 @@ export function buildNativeHookSmokePayload(
 }
 
 function smokeInstalledNativeHookDist(prefixDir: string): void {
+function runPackedTransportRegressions(hookScript: string, smokeCwd: string): void {
+  const invoke = (cwd: string, environment: NodeJS.ProcessEnv, payload: Record<string, unknown>) => run(process.execPath, [realpathSync(hookScript)], {
+    cwd, env: environment, input: JSON.stringify(payload),
+  });
+  const stopDecision = (cwd: string, environment: NodeJS.ProcessEnv, payload: Record<string, unknown>) => (
+    JSON.parse(String(invoke(cwd, environment, { ...payload, hook_event_name: 'Stop' }).stdout || '{}')) as { decision?: string }
+  ).decision;
+
+  const g1bCwd = join(smokeCwd, 'g1bu');
+  const g1bSession = 'g1bu';
+  const g1bThread = 'g1bu-thread';
+  const g1bPriorTurn = 'g1bu-turn-old';
+  const g1bTurn = 'g1bu-turn-new';
+  const g1bStateDir = join(g1bCwd, '.omx', 'state');
+  const g1bSessionDir = join(g1bStateDir, 'sessions', g1bSession);
+  mkdirSync(g1bSessionDir, { recursive: true });
+  for (const [path, marker] of [
+    [join(g1bStateDir, 'skill-active-state.json'), 'root-skill'],
+    [join(g1bSessionDir, 'skill-active-state.json'), 'session-skill'],
+  ] as const) {
+    writeFileSync(path, JSON.stringify({ active: true, skill: 'autopilot', phase: 'completing', session_id: g1bSession, thread_id: g1bThread, turn_id: g1bPriorTurn, marker, active_skills: [{ skill: 'autopilot', phase: 'completing', active: true, session_id: g1bSession, thread_id: g1bThread, turn_id: g1bPriorTurn }] }));
+  }
+  for (const [path, marker] of [
+    [join(g1bStateDir, 'autopilot-state.json'), 'root-autopilot'],
+    [join(g1bSessionDir, 'autopilot-state.json'), 'session-autopilot'],
+  ] as const) {
+    writeFileSync(path, JSON.stringify({ active: false, mode: 'autopilot', current_phase: 'complete', session_id: g1bSession, thread_id: g1bThread, turn_id: g1bPriorTurn, marker }));
+  }
+  const g1bEnv = { ...buildPackedRegressionEnvironment({ name: 'g1bu' }), OMX_TEAM_MODE: 'disabled' };
+  const g1bPrompt = '$team $autopilot restart — café';
+  const g1bPayload = { hook_event_name: 'UserPromptSubmit', cwd: g1bCwd, session_id: g1bSession, thread_id: g1bThread, turn_id: g1bTurn, prompt: g1bPrompt };
+  validateHookStdout('UserPromptSubmit', String(invoke(g1bCwd, g1bEnv, g1bPayload).stdout || ''));
+  const g1bState = JSON.parse(readFileSync(join(g1bSessionDir, 'skill-active-state.json'), 'utf-8')) as { active?: boolean; skill?: string; session_id?: string; thread_id?: string; turn_id?: string; active_skills?: Array<{ active?: boolean; skill?: string; session_id?: string; thread_id?: string; turn_id?: string }> };
+  const [g1bActiveSkill] = g1bState.active_skills ?? [];
+  if (!g1bState.active || g1bState.skill !== 'autopilot' || g1bState.session_id !== g1bSession || g1bState.thread_id !== g1bThread || g1bState.turn_id !== g1bTurn || g1bState.active_skills?.length !== 1 || !g1bActiveSkill?.active || g1bActiveSkill.skill !== 'autopilot' || g1bActiveSkill.session_id !== g1bSession || g1bActiveSkill.thread_id !== g1bThread || g1bActiveSkill.turn_id !== g1bTurn) throw new Error('packed G1b-U did not persist singleton Autopilot ownership for the new turn');
+  const g1bAutopilotState = JSON.parse(readFileSync(join(g1bSessionDir, 'autopilot-state.json'), 'utf-8')) as { active?: boolean; current_phase?: string; session_id?: string; thread_id?: string; turn_id?: string; state?: { handoff_artifacts?: { context_snapshot?: { path?: string } } } };
+  const g1bContextSnapshot = g1bAutopilotState.state?.handoff_artifacts?.context_snapshot?.path;
+  if (!g1bAutopilotState.active || g1bAutopilotState.current_phase !== 'deep-interview' || g1bAutopilotState.session_id !== g1bSession || g1bAutopilotState.thread_id !== g1bThread || g1bAutopilotState.turn_id !== g1bTurn || !g1bContextSnapshot || !readFileSync(resolve(g1bCwd, g1bContextSnapshot)).includes(Buffer.from(g1bPrompt, 'utf-8'))) throw new Error('packed G1b-U did not restart Autopilot with its UTF-8 context snapshot');
+  if (existsSync(join(g1bStateDir, 'team-state.json')) || existsSync(join(g1bSessionDir, 'team-state.json'))) throw new Error('packed G1b-U created Team state');
+  if (stopDecision(g1bCwd, g1bEnv, g1bPayload) !== 'block') throw new Error('packed G1b-U did not block Stop');
+
+  const g2aCwd = join(smokeCwd, 'g2a');
+  const g2aSession = 'g2a-stale-predecessor';
+  const g2aStateDir = join(g2aCwd, '.omx', 'state');
+  const g2aSessionDir = join(g2aStateDir, 'sessions', g2aSession);
+  const g2aFiles = [join(g2aStateDir, 'skill-active-state.json'), join(g2aStateDir, 'ralplan-state.json'), join(g2aSessionDir, 'skill-active-state.json'), join(g2aSessionDir, 'ralplan-state.json'), join(g2aStateDir, 'session.json')];
+  mkdirSync(g2aCwd, { recursive: true });
+  if (g2aFiles.some((file) => existsSync(file))) throw new Error('packed G2a fixture unexpectedly contains state');
+  const g2aEnv = buildPackedRegressionEnvironment({ name: 'g2a' });
+  const g2aPayload = { hook_event_name: 'UserPromptSubmit', cwd: g2aCwd, session_id: g2aSession, thread_id: 'g2a-thread', turn_id: 'g2a-turn', prompt: 'use $ralplan is the consensus-planning command' };
+  validateHookStdout('UserPromptSubmit', String(invoke(g2aCwd, g2aEnv, g2aPayload).stdout || ''));
+  if (g2aFiles.some((file) => existsSync(file))) throw new Error('packed G2a stale predecessor created skill/detail state');
+  if (stopDecision(g2aCwd, g2aEnv, g2aPayload) === 'block') throw new Error('packed G2a stale predecessor blocked Stop');
+  if (g2aFiles.some((file) => existsSync(file))) throw new Error('packed G2a stale predecessor created skill/detail state after Stop');
+
+  const g2bCwd = join(smokeCwd, 'g2b');
+  const g2bSession = 'g2b-terminal-session';
+  const g2bStateDir = join(g2bCwd, '.omx', 'state');
+  const g2bSessionDir = join(g2bStateDir, 'sessions', g2bSession);
+  const g2bFiles = [join(g2bStateDir, 'skill-active-state.json'), join(g2bStateDir, 'autopilot-state.json'), join(g2bSessionDir, 'skill-active-state.json'), join(g2bSessionDir, 'autopilot-state.json'), join(g2bStateDir, 'session.json')];
+  mkdirSync(g2bSessionDir, { recursive: true });
+  writeFileSync(g2bFiles[0]!, JSON.stringify({ version: 1, active: false, skill: 'autopilot', phase: 'complete', completed_at: '2026-06-01T00:00:01.001Z', session_id: 'g2b-root-session', thread_id: 'g2b-root-thread', turn_id: 'g2b-root-skill-turn', marker: 'g2b-root-skill' }));
+  writeFileSync(g2bFiles[1]!, JSON.stringify({ mode: 'autopilot', active: false, current_phase: 'complete', completed_at: '2026-06-01T00:00:02.002Z', session_id: 'g2b-root-session', thread_id: 'g2b-root-thread', turn_id: 'g2b-root-detail-turn', marker: 'g2b-root-detail' }));
+  writeFileSync(g2bFiles[2]!, JSON.stringify({ version: 1, active: false, skill: 'autopilot', phase: 'complete', completed_at: '2026-06-01T00:00:03.003Z', session_id: g2bSession, thread_id: 'g2b-session-thread', turn_id: 'g2b-session-skill-turn', marker: 'g2b-session-skill' }));
+  writeFileSync(g2bFiles[3]!, JSON.stringify({ mode: 'autopilot', active: false, current_phase: 'complete', completed_at: '2026-06-01T00:00:04.004Z', session_id: g2bSession, thread_id: 'g2b-session-thread', turn_id: 'g2b-session-detail-turn', marker: 'g2b-session-detail' }));
+  writeFileSync(g2bFiles[4]!, JSON.stringify({ session_id: g2bSession, cwd: g2bCwd, created_at: '2026-06-01T00:00:05.005Z', updated_at: '2026-06-01T00:00:06.006Z', last_turn_id: 'g2b-session-json-turn', marker: 'g2b-session-json' }));
+  const g2bBefore: Buffer[] = g2bFiles.map((file) => readFileSync(file));
+  const g2bEnv = buildPackedRegressionEnvironment({ name: 'g2b' });
+  const g2bPayload = { hook_event_name: 'UserPromptSubmit', cwd: g2bCwd, session_id: g2bSession, thread_id: 'g2b-prompt-thread', turn_id: 'g2b-prompt-turn', prompt: 'do not start $autopilot — café' };
+  validateHookStdout('UserPromptSubmit', String(invoke(g2bCwd, g2bEnv, g2bPayload).stdout || ''));
+  for (const [index, file] of g2bFiles.entries()) if (Buffer.compare(readFileSync(file), g2bBefore[index]!) !== 0) throw new Error(`packed G2b negated prompt mutated terminal state ${file}`);
+  if (stopDecision(g2bCwd, g2bEnv, g2bPayload) === 'block') throw new Error('packed G2b negated prompt blocked Stop');
+  for (const [index, file] of g2bFiles.entries()) if (Buffer.compare(readFileSync(file), g2bBefore[index]!) !== 0) throw new Error(`packed G2b negated prompt mutated terminal state after Stop ${file}`);
+}
+
   const globalNodeModules = resolveGlobalNodeModules(prefixDir);
   const packageRoot = join(globalNodeModules, 'oh-my-codex');
   const hookScript = join(packageRoot, 'dist', 'scripts', 'codex-native-hook.js');
@@ -1208,6 +1460,58 @@ function smokeInstalledNativeHookDist(prefixDir: string): void {
       });
       validateHookStdout(eventName, result.stdout as string);
     }
+
+    for (const [caseIndex, testCase] of PACKED_INSTALL_NATIVE_HOOK_REGRESSION_PROMPTS.entries()) {
+      const caseCwd = join(smokeCwd, testCase.name);
+      const sessionId = `packed-regression-${caseIndex}`;
+      mkdirSync(caseCwd, { recursive: true });
+      const environment = buildPackedRegressionEnvironment(testCase);
+      const promptPayload = {
+        hook_event_name: 'UserPromptSubmit',
+        cwd: caseCwd,
+        source: 'codex-app',
+        session_id: sessionId,
+        thread_id: `thread-${caseIndex}`,
+        turn_id: `turn-${caseIndex}`,
+        prompt: testCase.prompt,
+      };
+      const promptResult = run(process.execPath, [realpathSync(hookScript)], {
+        cwd: caseCwd,
+        env: environment,
+        input: JSON.stringify(promptPayload),
+      });
+      validateHookStdout('UserPromptSubmit', promptResult.stdout as string);
+      const skillStatePath = join(caseCwd, '.omx', 'state', 'sessions', sessionId, 'skill-active-state.json');
+      if (testCase.expectedSkill === null) {
+        if (existsSync(skillStatePath)) throw new Error(`packed regression ${testCase.name} created workflow state`);
+      } else {
+        if (!existsSync(skillStatePath)) throw new Error(`packed regression ${testCase.name} did not create workflow state`);
+        const skillState = JSON.parse(readFileSync(skillStatePath, 'utf-8')) as { active?: boolean; skill?: string; deferred_skills?: string[]; active_skills?: Array<{ skill?: string }> };
+        if (!skillState.active || skillState.skill !== testCase.expectedSkill) {
+          throw new Error(`packed regression ${testCase.name} persisted unexpected workflow state`);
+        }
+        if ('expectedDeferredSkills' in testCase && JSON.stringify(skillState.deferred_skills ?? []) !== JSON.stringify(testCase.expectedDeferredSkills)) {
+          throw new Error(`packed regression ${testCase.name} persisted unexpected deferred workflows`);
+        }
+        if ('expectedActiveSkills' in testCase && JSON.stringify(skillState.active_skills?.map((entry) => entry.skill) ?? []) !== JSON.stringify(testCase.expectedActiveSkills)) {
+          throw new Error(`packed regression ${testCase.name} persisted unexpected active workflows`);
+        }
+      }
+
+      const stopResult = run(process.execPath, [realpathSync(hookScript)], {
+        cwd: caseCwd,
+        env: environment,
+        input: JSON.stringify({ ...promptPayload, hook_event_name: 'Stop', turn_id: `stop-${caseIndex}` }),
+      });
+      const stopOutput = JSON.parse(String(stopResult.stdout || '{}')) as { decision?: string };
+      if (testCase.expectedStopBlock && stopOutput.decision !== 'block') {
+        throw new Error(`packed regression ${testCase.name} did not block Stop`);
+      }
+      if (!testCase.expectedStopBlock && stopOutput.decision === 'block') {
+        throw new Error(`packed regression ${testCase.name} blocked Stop: ${JSON.stringify(stopOutput)}`);
+      }
+    }
+    runPackedTransportRegressions(hookScript, smokeCwd);
   } finally {
     rmSync(smokeCwd, { recursive: true, force: true });
   }
